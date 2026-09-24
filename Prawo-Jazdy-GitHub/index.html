@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prawko B">
+  <title>Szybka Powtórka • Prawo Jazdy B</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <main id="setup-screen" class="page setup-page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Prawo jazdy • Kat. B</p>
+        <h1>Szybka Powtórka</h1>
+        <p class="muted">Po pierwszym imporcie pytania, multimedia i postęp są przechowywane lokalnie w przeglądarce.</p>
+      </div>
+      <button id="install-btn" class="button secondary hidden" type="button">Zainstaluj aplikację</button>
+    </section>
+
+    <section class="status-grid" aria-label="Stan danych aplikacji">
+      <article class="status-card">
+        <span class="status-label">Pytania</span>
+        <strong id="question-count">0</strong>
+        <span id="question-status" class="muted small">Brak bazy</span>
+      </article>
+      <article class="status-card">
+        <span class="status-label">Multimedia</span>
+        <strong id="media-count">0</strong>
+        <span id="media-status" class="muted small">Brak plików</span>
+      </article>
+      <article class="status-card">
+        <span class="status-label">Postęp</span>
+        <strong id="progress-count">0</strong>
+        <span class="muted small">opanowanych pytań</span>
+      </article>
+    </section>
+
+    <button id="start-btn" class="button primary start-button" type="button" disabled>Najpierw wczytaj bazę pytań</button>
+
+    <details class="panel" open>
+      <summary>Import bazy pytań</summary>
+      <div class="panel-body">
+        <p class="muted">Obsługiwane: Excel (.xlsx), CSV i JSON. Wszystkie te formaty są odczytywane lokalnie, bez wysyłania pliku do internetu.</p>
+        <label class="file-button">
+          <span>Wybierz plik z pytaniami</span>
+          <input id="questions-file" type="file" accept=".xlsx,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json">
+        </label>
+        <div class="row-actions">
+          <button id="export-questions-btn" class="button secondary" type="button" disabled>Eksportuj bazę JSON</button>
+          <button id="clear-questions-btn" class="button danger-ghost" type="button" disabled>Usuń bazę</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Import multimediów</summary>
+      <div class="panel-body">
+        <p class="muted">Na iPhonie najpewniejszy jest wybór wielu plików lub ZIP. Na komputerze możesz wskazać cały folder.</p>
+        <div class="import-grid">
+          <label class="file-button">
+            <span>Wybierz zdjęcia i filmy</span>
+            <input id="media-files" type="file" multiple accept="image/*,video/*,.mp4,.jpg,.jpeg,.png,.gif,.webp">
+          </label>
+          <label class="file-button desktop-folder">
+            <span>Wybierz folder</span>
+            <input id="media-folder" type="file" multiple webkitdirectory directory>
+          </label>
+          <label class="file-button">
+            <span>Importuj pakiet ZIP</span>
+            <input id="package-file" type="file" accept=".zip,application/zip">
+          </label>
+        </div>
+        <p id="import-progress" class="muted small" aria-live="polite"></p>
+        <button id="clear-media-btn" class="button danger-ghost" type="button" disabled>Usuń multimedia</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Postęp i ustawienia</summary>
+      <div class="panel-body settings-grid">
+        <label>
+          <span>Prędkość filmów</span>
+          <select id="speed-select">
+            <option value="1">1×</option>
+            <option value="1.25">1,25×</option>
+            <option value="1.5">1,5×</option>
+            <option value="1.75">1,75×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+        <div class="row-actions">
+          <button id="export-progress-btn" class="button secondary" type="button">Eksportuj postęp</button>
+          <label class="button secondary file-inline">Importuj postęp<input id="progress-file" type="file" accept=".json,application/json"></label>
+          <button id="reset-progress-btn" class="button danger-ghost" type="button">Reset postępu</button>
+        </div>
+        <div class="storage-box">
+          <span id="storage-status" class="muted small">Sprawdzanie pamięci…</span>
+          <button id="persist-storage-btn" class="button secondary small-button" type="button">Zabezpiecz dane offline</button>
+        </div>
+      </div>
+    </details>
+
+    <p class="setup-note">Aplikacja działa najlepiej z HTTPS albo na localhost. Po instalacji na ekranie początkowym iPhone'a może działać offline.</p>
+  </main>
+
+  <main id="app-screen" class="page app-page hidden">
+    <header class="app-header">
+      <nav id="navbar" class="navbar" aria-label="Tryb nauki">
+        <button class="nav-btn active" data-tab="podstawowe" type="button">Podstawowe</button>
+        <button class="nav-btn" data-tab="specjalistyczne" type="button">Specjalistyczne</button>
+        <button class="nav-btn" data-tab="bledy" type="button">Popraw błędy</button>
+        <button class="nav-btn" data-tab="lista_bledow" type="button">Historia</button>
+        <button class="nav-btn exam" data-tab="egzamin" type="button">Egzamin</button>
+      </nav>
+      <button id="settings-btn" class="icon-btn" type="button" aria-label="Dane i ustawienia">⚙︎</button>
+    </header>
+
+    <section id="quiz-container" class="quiz-shell">
+      <div id="progress-standard" class="progress-row">
+        <progress id="progress-bar" value="0" max="100"></progress>
+        <span id="progress-text">0 / 0</span>
+      </div>
+      <div id="progress-exam" class="exam-progress hidden" aria-label="Postęp egzaminu"></div>
+
+      <div id="media-box" class="media-box">
+        <video id="media-video" class="media-el hidden" preload="metadata" muted playsinline></video>
+        <img id="media-img" class="media-el hidden" alt="Multimedia do pytania">
+        <div id="media-text" class="media-message">Pytanie bez multimediów</div>
+        <button id="replay-btn" class="media-action hidden" type="button">↻ Odtwórz</button>
+      </div>
+
+      <div class="question-meta">
+        <span id="points-badge" class="badge important hidden"></span>
+        <span class="badge category">Kategoria B</span>
+      </div>
+      <div id="q-text" class="question-text" aria-live="polite">Ładowanie pytania…</div>
+      <div id="answers-box" class="answers-grid"></div>
+      <button id="continue-btn" class="continue-btn hidden" type="button">Dalej</button>
+    </section>
+
+    <section id="history-container" class="hidden content-section">
+      <div class="section-heading">
+        <div>
+          <h2>Historia błędów</h2>
+          <p class="muted">Pytania, na które kiedykolwiek udzielono błędnej odpowiedzi.</p>
+        </div>
+      </div>
+      <div id="history-list"></div>
+    </section>
+
+    <section id="exam-result-container" class="hidden content-section">
+      <div class="result-card">
+        <p class="eyebrow">Wynik egzaminu</p>
+        <div id="exam-status"></div>
+        <div class="result-score"><strong id="exam-points">0</strong> / <span id="exam-max-points">74</span> pkt</div>
+        <p class="muted">Próg zaliczenia: 68 punktów.</p>
+      </div>
+      <h2 id="exam-errors-heading">Błędy</h2>
+      <div id="exam-errors-list"></div>
+    </section>
+  </main>
+
+  <script src="vendor/jszip.min.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
