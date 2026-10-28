@@ -426,11 +426,11 @@ async function refreshSetupStatus() {
   $('question-count').textContent = String(questions.length);
   $('question-status').textContent = questions.length ? 'baza gotowa' : 'brak bazy';
   $('media-count').textContent = String(mediaCount);
-  $('media-status').textContent = mediaCount ? 'zapisane lokalnie' : 'brak lokalnych plików';
+  $('media-status').textContent = mediaCount ? 'zapisane na urządzeniu' : 'online na żądanie';
   $('progress-count').textContent = String(progress.correct.length);
 
   $('start-btn').disabled = questions.length === 0;
-  $('start-btn').textContent = questions.length ? 'Rozpocznij naukę' : 'Najpierw wczytaj bazę pytań';
+  $('start-btn').textContent = questions.length ? 'Rozpocznij naukę' : 'Ładowanie bazy pytań…';
   $('export-questions-btn').disabled = questions.length === 0;
   $('clear-questions-btn').disabled = questions.length === 0;
   $('clear-media-btn').disabled = mediaCount === 0;
@@ -913,7 +913,27 @@ function downloadJSON(filename, payload) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function closeImageDialog() {
+  const dialog = $('image-dialog');
+  if (dialog?.open) dialog.close();
+  $('image-dialog-img')?.removeAttribute('src');
+}
+
+function openWelcomeDialog() {
+  const dialog = $('welcome-dialog');
+  if (dialog && !dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
+}
+
+async function maybeShowWelcomeDialog() {
+  try {
+    if (await kvGet('welcome_seen_v1') !== true) openWelcomeDialog();
+  } catch (error) {
+    console.warn('Nie udało się odczytać ustawień pierwszego uruchomienia:', error);
+  }
+}
+
 function cleanupMediaUrl() {
+  closeImageDialog();
   if (currentMediaUrl) {
     URL.revokeObjectURL(currentMediaUrl);
     currentMediaUrl = null;
@@ -931,6 +951,7 @@ function resetMediaBox(message = 'Pytanie bez multimediów') {
   $('media-video').classList.add('hidden');
   $('media-img').classList.add('hidden');
   $('replay-btn').classList.add('hidden');
+  $('image-expand-btn').classList.add('hidden');
   $('media-text').textContent = message;
   $('media-text').classList.remove('hidden');
 }
@@ -966,6 +987,7 @@ async function setMedia(name) {
     image.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć: ' + originalName); };
     image.src = url;
     image.classList.remove('hidden');
+    $('image-expand-btn').classList.remove('hidden');
     return;
   }
   const video = $('media-video');
@@ -1538,10 +1560,7 @@ function registerServiceWorker() {
 }
 
 function bindEvents() {
-  $('questions-file').addEventListener('change', event => {
-    importQuestionFile(event.target.files?.[0]);
-    event.target.value = '';
-  });
+  // Published questions are loaded automatically; no Excel picker is shown.
   $('media-files').addEventListener('change', event => {
     importMediaFiles(event.target.files);
     event.target.value = '';
@@ -1557,6 +1576,23 @@ function bindEvents() {
 
   $('start-btn').addEventListener('click', () => enterApp(progress.lastTab));
   $('settings-btn').addEventListener('click', enterSetup);
+  $('help-btn').addEventListener('click', openWelcomeDialog);
+  $('welcome-close-btn').addEventListener('click', () => $('welcome-dialog').close());
+  $('welcome-dialog').addEventListener('close', () => {
+    kvSet('welcome_seen_v1', true).catch(error =>
+      console.warn('Nie udało się zapisać ustawień pomocy:', error));
+  });
+  $('image-expand-btn').addEventListener('click', () => {
+    const image = $('media-img');
+    const dialog = $('image-dialog');
+    if (image.classList.contains('hidden') || !image.src ||
+        dialog.open || typeof dialog.showModal !== 'function') return;
+    $('image-dialog-img').src = image.currentSrc || image.src;
+    dialog.showModal();
+  });
+  $('image-close-btn').addEventListener('click', closeImageDialog);
+  $('image-dialog').addEventListener('close', () =>
+    $('image-dialog-img').removeAttribute('src'));
   document.querySelectorAll('.nav-btn').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
   $('continue-btn').addEventListener('click', continueAfterError);
 
@@ -1677,18 +1713,26 @@ async function init() {
     bindEvents();
     setupInstallFlow();
     registerServiceWorker();
+    maybeShowWelcomeDialog().catch(console.warn);
     $('speed-select').value = String(settings.playbackRate);
     await refreshSetupStatus();
     await updateStorageStatus();
-    if (!questions.length) {
-      document.querySelector('#setup-screen details.panel')?.setAttribute('open', '');
-    } else {
+    if (questions.length) {
       $('start-btn').disabled = true;
       $('start-btn').textContent = 'Sprawdzanie aktualizacji bazy…';
     }
 
     await importPublishedQuestions();
     await refreshSetupStatus();
+    if (questions.length) {
+      $('catalog-hint').textContent =
+        'Baza pytań jest gotowa. Postęp pozostaje zapisany na tym urządzeniu.';
+    } else {
+      $('start-btn').textContent = 'Baza pytań niedostępna';
+      $('question-status').textContent = 'nie udało się pobrać';
+      $('catalog-hint').textContent =
+        'Baza nie jest jeszcze opublikowana lub chwilowo niedostępna. Spróbuj później odświeżyć stronę.';
+    }
     if (questions.length && $('app-screen').classList.contains('hidden')) {
       enterApp(progress.lastTab);
     }
