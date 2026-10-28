@@ -686,8 +686,20 @@ async function importPackage(file) {
   if (!file || !window.JSZip) return;
   setImportProgress('Otwieranie pakietu ZIP…');
   try {
+    const MAX_ZIP_SIZE = 250 * 1024 * 1024;
+    const MAX_ENTRY_SIZE = 50 * 1024 * 1024;
+    const MAX_UNPACKED = 400 * 1024 * 1024;
+    if (file.size > MAX_ZIP_SIZE) {
+      throw new Error('ZIP przekracza 250 MiB. Na komputerze importuj folder; na iPhonie podziel pakiet na mniejsze części.');
+    }
     const zip = await JSZip.loadAsync(file);
     const entries = Object.values(zip.files).filter(entry => !entry.dir);
+    // JSZip exposes uncompressedSize on ZIP-backed entries. Check it before expansion.
+    const knownSizes = entries.map(entry => Number(entry._data?.uncompressedSize));
+    if (knownSizes.some(size => Number.isFinite(size) && size > MAX_ENTRY_SIZE) ||
+        knownSizes.reduce((sum, size) => sum + (Number.isFinite(size) ? size : 0), 0) > MAX_UNPACKED) {
+      throw new Error('ZIP po rozpakowaniu byłby zbyt duży. Zamiast ZIP wybierz folder z multimediami.');
+    }
     const priority = name => {
       const base = normalizeFileName(name);
       if (base === 'questions.json' || base === 'pytania.json') return 0;
@@ -717,6 +729,9 @@ async function importPackage(file) {
       setImportProgress(`Rozpakowywanie multimediów: ${i + 1} / ${mediaEntries.length}`);
       const ext = extensionOf(entry.name);
       const blob = await entry.async('blob');
+      if (blob.size > MAX_ENTRY_SIZE) {
+        throw new Error('Plik z ZIP przekracza 50 MiB: ' + entry.name);
+      }
       batch.push({
         name: normalizeFileName(entry.name),
         blob: blob.type ? blob : blob.slice(0, blob.size, mimeFromExtension(ext)),
@@ -724,7 +739,7 @@ async function importPackage(file) {
         size: blob.size,
         updatedAt: Date.now()
       });
-      if (batch.length >= 25) {
+      if (batch.length >= 10) {
         await putMediaRecords(batch);
         batch = [];
       }
@@ -1330,13 +1345,18 @@ function correctAnswerText(question) {
 
 function setupLazyMediaObserver() {
   historyObserver?.disconnect();
-  historyObserver = new IntersectionObserver(entries => {
+  if (typeof IntersectionObserver !== 'function') {
+    historyObserver = null;
+    return;
+  }
+  const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      historyObserver.unobserve(entry.target);
+      if (!entry.isIntersecting || observer !== historyObserver) return;
+      observer.unobserve(entry.target);
       loadCardMedia(entry.target, entry.target.dataset.mediaName).catch(console.error);
     });
   }, { rootMargin: '220px 0px' });
+  historyObserver = observer;
 }
 
 async function loadCardMedia(container, originalName) {
@@ -1384,6 +1404,11 @@ function createErrorCard(question, lostPoints = null) {
   media.textContent = question['Media'] ? 'Ładowanie…' : 'Bez multimediów';
   item.appendChild(media);
   historyObserver?.observe(media);
+  if (!historyObserver && media.dataset.mediaName) {
+    requestAnimationFrame(() => {
+      if (media.isConnected) loadCardMedia(media, media.dataset.mediaName).catch(console.error);
+    });
+  }
 
   const content = document.createElement('div');
   content.className = 'error-content';
