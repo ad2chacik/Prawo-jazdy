@@ -238,7 +238,7 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
   align-items: center;
   justify-content: center;
   isolation: isolate;
-  margin-bottom: 13px;
+  margin-bottom: 6px;
 }
 /* Image, video and loading placeholder share exactly the same dimensions.
    Contain introduces black side/top bars without cropping road signs. */
@@ -263,19 +263,25 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
   line-height: 1.5;
   max-width: 36rem;
 }
+.media-toolbar {
+  width: 100%;
+  min-height: 48px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .media-action {
-  position: absolute;
-  z-index: 3;
-  right: 10px;
-  top: 10px;
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.22);
-  background: rgba(15,23,42,.84);
-  color: white;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
-  font-weight: 800;
+  font-size: .86rem;
+  font-weight: 750;
 }
 .question-meta { display: flex; align-items: center; gap: 7px; min-height: 28px; }
 .badge { display: inline-flex; padding: 5px 8px; border-radius: 7px; font-size: .72rem; font-weight: 850; }
