@@ -57,6 +57,19 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 
 Pliki w `data/` i `media/` powyżej są **docelową strukturą**, a nie stwierdzeniem, że baza i multimedia zostały już opublikowane.
 
+## Egzamin próbny
+
+Tryb egzaminu dobiera 20 pytań podstawowych (10 za 3 pkt, 6 za 2 pkt, 4 za 1 pkt)
+oraz 12 specjalistycznych (6 za 3 pkt, 4 za 2 pkt, 2 za 1 pkt).
+Maksimum wynosi 74 pkt, próg zdania 68 pkt. Ten rozkład odpowiada zasadom
+opisanym w § 19 rozporządzenia dotyczącego egzaminowania.
+
+**Ważne:** obecny tryb nie odtwarza ograniczeń czasu (25 minut ogółem,
+ani limitów przypisanych pytaniom). Jest to **egzamin próbny** do nauki,
+a nie pełna symulacja egzaminu państwowego. Nie sugerować inaczej w interfejsie.
+
+Źródło: https://eli.gov.pl/api/acts/DU/2023/2659/text.html
+
 ## Niezmienniki i zgodność
 
 - Nie zmieniać formatów zapisanych w IndexedDB bez migracji.
