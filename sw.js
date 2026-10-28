@@ -37,7 +37,9 @@ self.addEventListener('fetch', event => {
 
   // Cache only the application shell. Questions live in IndexedDB;
   // media use browser-native HTTP Range and streaming.
-  if (request.mode !== 'navigate' && !SHELL_URLS.has(url.href)) return;
+  const navigationTarget = request.mode === 'navigate' &&
+    (url.pathname === SCOPE.pathname || url.pathname === new URL('./index.html', SCOPE).pathname);
+  if (!SHELL_URLS.has(url.href) && !navigationTarget) return;
 
   event.respondWith(
     fetch(request).then(response => {
