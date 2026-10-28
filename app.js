@@ -5,7 +5,6 @@ const DB_VERSION = 2;
 const MEDIA_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'mp4', 'm4v', 'mov', 'webm', 'wmv']);
 const PUBLISHED_QUESTION_PATHS = ['./data/questions.json', './data/questions.xlsx'];
 const PUBLISHED_MEDIA_DIR = './media/';
-const MAX_CACHED_MEDIA_BYTES = 25 * 1024 * 1024;
 let answering = false;
 let tabSwitchSequence = 0;
 let historyGeneration = 0;
@@ -270,7 +269,7 @@ function normalizeProgress(value) {
     errors: arr('errors'),
     all_time_errors: arr('all_time_errors'),
     lastTab: ['podstawowe', 'specjalistyczne', 'bledy', 'lista_bledow'].includes(source.lastTab) ? source.lastTab : 'podstawowe',
-    lastQuestionByTab: source.lastQuestionByTab && typeof source.lastQuestionByTab === 'object' ? source.lastQuestionByTab : {}
+    lastQuestionByTab: source.lastQuestionByTab && typeof source.lastQuestionByTab === 'object' && !Array.isArray(source.lastQuestionByTab) ? { ...source.lastQuestionByTab } : {}
   };
 }
 
@@ -353,8 +352,9 @@ function prepareDecks() {
 }
 
 async function saveProgress() {
+  progress = normalizeProgress(progress);
+  // Separate persisted snapshot from mutable in-memory state, including nested objects.
   const snapshot = normalizeProgress(progress);
-  progress = snapshot;
   // Serialize writes: a slower earlier transaction must never restore stale progress.
   progressWriteQueue = progressWriteQueue.catch(error => {
     console.warn('Poprzedni zapis postępu nie powiódł się:', error);
@@ -426,7 +426,7 @@ async function refreshSetupStatus() {
   $('question-count').textContent = String(questions.length);
   $('question-status').textContent = questions.length ? 'baza gotowa' : 'brak bazy';
   $('media-count').textContent = String(mediaCount);
-  $('media-status').textContent = mediaCount ? 'zapisane lokalnie' : 'online na żądanie';
+  $('media-status').textContent = mediaCount ? 'zapisane lokalnie' : 'brak lokalnych plików';
   $('progress-count').textContent = String(progress.correct.length);
 
   $('start-btn').disabled = questions.length === 0;
