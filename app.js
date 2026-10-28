@@ -980,17 +980,23 @@ async function setMedia(name) {
   cleanupMediaUrl();
   currentMediaUrl = asset.blob ? URL.createObjectURL(asset.blob) : null;
   const url = currentMediaUrl || asset.url;
-  $('media-text').classList.add('hidden');
   const ext = extensionOf(asset.name);
   if ((asset.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
     const image = $('media-img');
+    image.onload = () => {
+      if (token !== mediaLoadToken) return;
+      $('media-text').classList.add('hidden');
+      $('image-expand-btn').classList.remove('hidden');
+    };
     image.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć: ' + originalName); };
     image.src = url;
     image.classList.remove('hidden');
-    $('image-expand-btn').classList.remove('hidden');
     return;
   }
   const video = $('media-video');
+  video.onloadedmetadata = () => {
+    if (token === mediaLoadToken) $('media-text').classList.add('hidden');
+  };
   video.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć filmu: ' + originalName); };
   video.src = url;
   video.preload = 'metadata';
