@@ -500,15 +500,34 @@ function xmlTextContent(node) {
   return Array.from(node?.getElementsByTagName('t') || []).map(item => item.textContent || '').join('');
 }
 
+function parseXlsxXML(xml, parser, filename) {
+  const parsed = parser.parseFromString(xml, 'application/xml');
+  if (parsed.getElementsByTagName('parsererror').length || parsed.documentElement?.localName === 'parsererror') {
+    throw new Error('Uszkodzony XML w arkuszu XLSX: ' + filename);
+  }
+  return parsed;
+}
+
+function resolveXlsxSheetPath(target) {
+  // Relationship Target paths are relative to xl/workbook.xml.
+  const path = new URL(String(target).replace(/\\/g, '/'),
+    'https://xlsx.invalid/xl/').pathname.replace(/^\//, '');
+  if (!path.startsWith('xl/worksheets/')) {
+    throw new Error('Nieoczekiwana ścieżka arkusza XLSX.');
+  }
+  return path;
+}
+
 async function parseXLSXArrayBuffer(buffer) {
   if (!window.JSZip) throw new Error('Brak lokalnego modułu ZIP potrzebnego do odczytu XLSX.');
+  if (buffer.byteLength > 25 * 1024 * 1024) throw new Error('Plik XLSX przekracza 25 MiB.');
   const zip = await JSZip.loadAsync(buffer);
   const parser = new DOMParser();
 
   const sharedStrings = [];
   const sharedEntry = zip.file('xl/sharedStrings.xml');
   if (sharedEntry) {
-    const xml = parser.parseFromString(await sharedEntry.async('text'), 'application/xml');
+    const xml = parseXlsxXML(await sharedEntry.async('text'), parser, 'sharedStrings.xml');
     Array.from(xml.getElementsByTagName('si')).forEach(si => sharedStrings.push(xmlTextContent(si)));
   }
 
@@ -516,23 +535,22 @@ async function parseXLSXArrayBuffer(buffer) {
   const workbookEntry = zip.file('xl/workbook.xml');
   const relsEntry = zip.file('xl/_rels/workbook.xml.rels');
   if (workbookEntry && relsEntry) {
-    const workbook = parser.parseFromString(await workbookEntry.async('text'), 'application/xml');
+    const workbook = parseXlsxXML(await workbookEntry.async('text'), parser, 'workbook.xml');
     const firstSheet = workbook.getElementsByTagName('sheet')[0];
     const relationshipId = firstSheet?.getAttribute('r:id') || firstSheet?.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
     if (relationshipId) {
-      const rels = parser.parseFromString(await relsEntry.async('text'), 'application/xml');
+      const rels = parseXlsxXML(await relsEntry.async('text'), parser, 'workbook.xml.rels');
       const relationship = Array.from(rels.getElementsByTagName('Relationship')).find(rel => rel.getAttribute('Id') === relationshipId);
       const target = relationship?.getAttribute('Target');
       if (target) {
-        const cleaned = target.replace(/^\//, '');
-        sheetPath = cleaned.startsWith('xl/') ? cleaned : `xl/${cleaned.replace(/^\.\//, '')}`;
+        sheetPath = resolveXlsxSheetPath(target);
       }
     }
   }
 
   const sheetEntry = zip.file(sheetPath) || zip.file('xl/worksheets/sheet1.xml');
   if (!sheetEntry) throw new Error('Nie znaleziono pierwszego arkusza w pliku XLSX.');
-  const sheet = parser.parseFromString(await sheetEntry.async('text'), 'application/xml');
+  const sheet = parseXlsxXML(await sheetEntry.async('text'), parser, sheetPath);
   const parsedRows = [];
 
   Array.from(sheet.getElementsByTagName('row')).forEach(rowNode => {
@@ -773,10 +791,11 @@ function forgetChangedQuestionProgress(previous, next) {
 
 async function importPublishedQuestions() {
   const metadata = (await kvGet('questions_meta')) || {};
-  const version = await readPublishedCatalog();
   const isUpdate = questions.length > 0;
-  // Manual imports and older unmarked databases are not silently replaced.
-  if (isUpdate && !(version && metadata.source === 'published' && metadata.version !== version)) return false;
+  // Avoid an unnecessary network check for manually imported question banks.
+  if (isUpdate && metadata.source !== 'published') return false;
+  const version = await readPublishedCatalog();
+  if (isUpdate && !(version && metadata.version !== version)) return false;
 
   if (!isUpdate) setImportProgress('Pobieranie opublikowanej bazy pytań…');
   for (const path of PUBLISHED_QUESTION_PATHS) {
