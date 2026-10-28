@@ -19,13 +19,14 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 | `tests/smoke.cjs` | Bezserwerowe testy regresji |
 | `.github/workflows/verify.yml` | Sprawdzanie składni i testów po push |
 | `data/questions.json` lub `data/questions.xlsx` | Publiczna baza pytań (po publikacji przez właściciela) |
+| `data/catalog.json` | Opcjonalna wersja opublikowanej bazy do bezpiecznych aktualizacji |
 | `media/*.mp4`, `media/*.jpg` | Publiczne multimedia (po publikacji przez właściciela) |
 
 ## Przepływ danych
 
 1. Na starcie IndexedDB jest odczytywana lokalnie.
-2. Jeżeli nie ma lokalnej bazy, aplikacja próbuje pobrać `data/questions.json`, następnie `data/questions.xlsx`.
-3. Dane po normalizacji trafiają do IndexedDB, gdzie pozostają dostępne offline.
+2. Przy braku bazy aplikacja pobiera `data/questions.json`, potem `data/questions.xlsx`. Przy lokalnej bazie pochodzącej z publikacji sprawdza `data/catalog.json`; gdy `version` się zmieni, pobiera aktualną bazę. Baza ręcznie importowana nie jest automatycznie zastępowana.
+3. Dane po normalizacji trafiają do IndexedDB, gdzie pozostają dostępne offline. Podczas aktualizacji zachowujemy postęp dla identyfikatorów o niezmienionej treści i odpowiedzi. Postęp pytań zmodyfikowanych jest resetowany. Aktualizacja, która usunęłaby ponad 20% pytań, jest wstrzymywana do ręcznej weryfikacji.
 4. Każdy użytkownik ma osobny postęp przypisany do identyfikatorów pytań. Zapis jest kolejkowany, aby wcześniejsza transakcja nie nadpisała nowszego stanu.
 5. Dla obrazów i filmów pierwszeństwo ma ręcznie zaimportowana kopia lokalna. W innym przypadku następuje odczyt publicznego pliku z `media/` przez standardowe elementy `img` i `video`.
 6. `video` odtwarza MP4 z obsługą natywnego HTTP Range. Duże pliki nie są automatycznie kopiowane do IndexedDB ani Cache API.
@@ -45,7 +46,8 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 │   ├── jszip.min.js
 │   └── JSZIP-LICENSE.md
 ├── data/
-│   └── questions.json
+│   ├── questions.json
+│   └── catalog.json
 ├── media/
 │   ├── nazwa-zdjecia.jpg
 │   └── nazwa-filmu.mp4
@@ -74,7 +76,8 @@ Pliki w `data/` i `media/` powyżej są **docelową strukturą**, a nie stwierdz
 - [ ] Publikacja rzeczywistego `KATALOG_dla_kandydatów_na_kierowców_072026.xlsx` po sprawdzeniu kolumn i pytań
 - [ ] Publikacja skompresowanego zestawu multimediów po sprawdzeniu wynikowego rozmiaru, nazw i uprawnień
 - [ ] E2E na fizycznym iPhonie, w tym połączenie/bez internetu
-- [ ] Kontrolowany mechanizm aktualizacji opublikowanej bazy (obecnie istniejąca lokalna baza pozostaje priorytetowa)
+- [x] Kontrolowany mechanizm aktualizacji opublikowanej bazy przez `catalog.json`
+- [ ] Testy z rzeczywistym XLSX w Safari i walidacja jakości kompletnego katalogu
 
 ## Referencje
 
