@@ -125,6 +125,25 @@ async function main() {
   await run("importPackage({size:251 * 1024 * 1024, name:'oversized.zip'})");
   assert.match(element('import-progress').textContent, /250 MiB/);
 
-  console.log('PASS: validation, import, database updates, progress, ZIP safety and service worker');
+  // Responsive frontend and guide must remain in sync with JavaScript hooks.
+  const html = fs.readFileSync('index.html', 'utf8');
+  const styles = fs.readFileSync('styles.css', 'utf8');
+  for (const id of [
+    'welcome-dialog', 'welcome-close-btn', 'help-btn',
+    'image-dialog', 'image-dialog-img', 'image-expand-btn',
+    'image-close-btn', 'catalog-hint', 'media-img', 'media-video'
+  ]) {
+    assert.ok(html.includes('id="' + id + '"'), 'Missing frontend ID: ' + id);
+  }
+  assert.ok(!html.includes('id="questions-file"'), 'Excel picker should not return');
+  assert.match(styles, /aspect-ratio:\s*16\s*\/\s*10/);
+  assert.match(styles, /object-fit:\s*contain/);
+  assert.match(styles, /background:\s*#000/);
+  assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html), 'UI contains emoji');
+  assert.match(html, /playsinline/);
+  assert.match(html, /Dobra odpowiedź/);
+  assert.match(html, /od razu przenosi do kolejnego pytania/);
+
+  console.log('PASS: imports, progress, ZIP safety, service worker, responsive frontend and onboarding');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
