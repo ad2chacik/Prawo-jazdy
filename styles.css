@@ -228,7 +228,7 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
 .media-action {
   position: absolute;
   right: 10px;
-  bottom: 10px;
+  top: 10px;
   min-height: 40px;
   padding: 0 12px;
   border-radius: 999px;
