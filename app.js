@@ -843,6 +843,12 @@ async function importPublishedQuestions() {
       if (!payload) continue;
       const parsed = path.endsWith('.json') ? payload : await parseXLSXArrayBuffer(payload);
       const clean = buildQuestionDatabase(Array.isArray(parsed) ? parsed : parsed.questions);
+      // A manual import may have completed while this network request was pending.
+      if (!isUpdate && questions.length) return false;
+      if (isUpdate) {
+        const currentMetadata = (await kvGet('questions_meta')) || {};
+        if (currentMetadata.source !== 'published' || currentMetadata.version !== metadata.version) return false;
+      }
       if (isUpdate && clean.length < questions.length * 0.8) {
         throw new Error('Aktualizacja zawiera znacznie mniej pytań. Zachowano starszą bazę.');
       }
@@ -1666,17 +1672,26 @@ async function init() {
     await kvSet('progress', progress);
     await kvSet('settings', settings);
     prepareDecks();
-    await importPublishedQuestions();
 
+    // Register user interactions before waiting for optional online data.
     bindEvents();
     setupInstallFlow();
     registerServiceWorker();
     $('speed-select').value = String(settings.playbackRate);
     await refreshSetupStatus();
     await updateStorageStatus();
+    if (!questions.length) {
+      document.querySelector('#setup-screen details.panel')?.setAttribute('open', '');
+    } else {
+      $('start-btn').disabled = true;
+      $('start-btn').textContent = 'Sprawdzanie aktualizacji bazy…';
+    }
 
-    if (questions.length) enterApp(progress.lastTab);
-    else document.querySelector('#setup-screen details.panel')?.setAttribute('open', '');
+    await importPublishedQuestions();
+    await refreshSetupStatus();
+    if (questions.length && $('app-screen').classList.contains('hidden')) {
+      enterApp(progress.lastTab);
+    }
   } catch (error) {
     console.error(error);
     $('question-status').textContent = 'błąd pamięci';
