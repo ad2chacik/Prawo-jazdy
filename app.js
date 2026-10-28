@@ -603,12 +603,15 @@ async function replaceQuestions(rows, askBeforeReplace = true) {
   const clean = buildQuestionDatabase(rows);
   if (askBeforeReplace && questions.length && !confirm(`Zastąpić obecną bazę (${questions.length} pytań) nową bazą (${clean.length} pytań)?`)) return false;
 
+  const previous = questions;
   await replaceStoredQuestions(clean, { source: 'manual' });
   questions = clean;
+  const changed = forgetChangedQuestionProgress(previous, clean);
   reconcileProgress();
   await saveProgress();
   prepareDecks();
   await refreshSetupStatus();
+  if (changed) showToast('Zmieniono ' + changed + ' pytań. Ich stary postęp został wyzerowany.');
   return true;
 }
 
