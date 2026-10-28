@@ -8,6 +8,8 @@ const PUBLISHED_MEDIA_DIR = './media/';
 const MAX_CACHED_MEDIA_BYTES = 25 * 1024 * 1024;
 let answering = false;
 let tabSwitchSequence = 0;
+let historyGeneration = 0;
+let progressWriteQueue = Promise.resolve();
 
 
 const DEFAULT_PROGRESS = () => ({
@@ -351,8 +353,13 @@ function prepareDecks() {
 }
 
 async function saveProgress() {
-  progress = normalizeProgress(progress);
-  await kvSet('progress', progress);
+  const snapshot = normalizeProgress(progress);
+  progress = snapshot;
+  // Serialize writes: a slower earlier transaction must never restore stale progress.
+  progressWriteQueue = progressWriteQueue.catch(error => {
+    console.warn('Poprzedni zapis postępu nie powiódł się:', error);
+  }).then(() => kvSet('progress', snapshot));
+  await progressWriteQueue;
   updateProgressStatus();
 }
 
@@ -419,7 +426,7 @@ async function refreshSetupStatus() {
   $('question-count').textContent = String(questions.length);
   $('question-status').textContent = questions.length ? 'baza gotowa' : 'brak bazy';
   $('media-count').textContent = String(mediaCount);
-  $('media-status').textContent = mediaCount ? 'zapisane lokalnie' : 'opcjonalne';
+  $('media-status').textContent = mediaCount ? 'zapisane lokalnie' : 'online na żądanie';
   $('progress-count').textContent = String(progress.correct.length);
 
   $('start-btn').disabled = questions.length === 0;
@@ -753,42 +760,23 @@ async function findMediaAsset(originalName) {
   const original = normalizeFileName(originalName);
   if (!original) return null;
   const candidates = original.endsWith('.wmv')
-    ? [original.replace(/\.wmv$/i, '.mp4'), original] : [original];
+    ? [original.replace(/\.wmv$/i, '.mp4')] : [original];
 
+  // Prefer explicitly imported files. These remain available offline.
   for (const name of candidates) {
-    const record = await getMedia(name);
-    if (record?.blob && extensionOf(name) !== 'wmv') {
-      return { name, blob: record.blob, type: record.type };
+    try {
+      const record = await getMedia(name);
+      if (record?.blob) return { name, blob: record.blob, type: record.type };
+    } catch (error) {
+      console.warn('Nie udało się odczytać lokalnych multimediów:', error);
     }
   }
 
+  // Stream published files directly, so Safari can request video byte ranges.
+  // Absence of a file is handled by the <img>/<video> error event.
   for (const name of candidates) {
-    if (extensionOf(name) === 'wmv') continue;
     const url = publishedMediaURL(name);
-    if (!url) continue;
-    try {
-      const response = await fetch(url);
-      if (!response.ok) continue;
-      const reportedSize = Number(response.headers.get('content-length') || 0);
-      if (reportedSize > MAX_CACHED_MEDIA_BYTES) {
-        await response.body?.cancel();
-        return { name, url, type: mimeFromExtension(extensionOf(name)) };
-      }
-      const blob = await response.blob();
-      if (!blob.size) continue;
-      if (blob.size > MAX_CACHED_MEDIA_BYTES) {
-        return { name, url, type: mimeFromExtension(extensionOf(name)) };
-      }
-      const type = blob.type || mimeFromExtension(extensionOf(name));
-      try {
-        await putMediaRecords([{ name, blob, type, size: blob.size, updatedAt: Date.now() }]);
-      } catch (error) {
-        console.warn('Nie udało się zachować multimediów do pracy offline:', error);
-      }
-      return { name, blob, type };
-    } catch (error) {
-      console.warn('Nie udało się pobrać multimediów:', name, error);
-    }
+    if (url) return { name, url, type: mimeFromExtension(extensionOf(name)) };
   }
   return null;
 }
@@ -818,6 +806,7 @@ function cleanupMediaUrl() {
 }
 
 function resetMediaBox(message = 'Pytanie bez multimediów') {
+  mediaLoadToken++;
   cleanupMediaUrl();
   $('media-video').classList.add('hidden');
   $('media-img').classList.add('hidden');
@@ -827,14 +816,21 @@ function resetMediaBox(message = 'Pytanie bez multimediów') {
 }
 
 async function setMedia(name) {
-  const token = ++mediaLoadToken;
   resetMediaBox('Ładowanie multimediów…');
+  const token = mediaLoadToken;
   const originalName = String(name || '').trim();
   if (!originalName || originalName.toLowerCase() === 'nan') {
     resetMediaBox('Pytanie bez multimediów');
     return;
   }
-  const asset = await findMediaAsset(originalName);
+  let asset;
+  try {
+    asset = await findMediaAsset(originalName);
+  } catch (error) {
+    console.warn('Nie udało się otworzyć multimediów:', error);
+    if (token === mediaLoadToken) resetMediaBox('Błąd wczytywania multimediów');
+    return;
+  }
   if (token !== mediaLoadToken) return;
   if (!asset) {
     resetMediaBox('Brak pliku: ' + originalName);
@@ -855,6 +851,8 @@ async function setMedia(name) {
   const video = $('media-video');
   video.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć filmu: ' + originalName); };
   video.src = url;
+  video.preload = 'metadata';
+  video.controls = true;
   video.playbackRate = settings.playbackRate;
   video.classList.remove('hidden');
   $('replay-btn').classList.remove('hidden');
@@ -917,6 +915,7 @@ function hideAllMainViews() {
 }
 
 function cleanupHistoryMedia() {
+  historyGeneration++;
   historyObserver?.disconnect();
   historyObserver = null;
   historyUrls.forEach(url => URL.revokeObjectURL(url));
@@ -925,6 +924,8 @@ function cleanupHistoryMedia() {
 
 async function switchTab(tab) {
   const switchId = ++tabSwitchSequence;
+  mediaLoadToken++;
+  cleanupMediaUrl();
   cleanupHistoryMedia();
   waitingForContinue = false;
   $('continue-btn').classList.add('hidden');
@@ -1056,7 +1057,7 @@ function showQuestion() {
 
   if (!isExam) {
     progress.lastQuestionByTab[currentTab] = question._id;
-    kvSet('progress', progress).catch(console.error);
+    saveProgress().catch(console.error);
   }
 }
 
@@ -1213,6 +1214,7 @@ async function finishExam() {
   await saveProgress();
   prepareDecks();
   if (currentTab !== 'egzamin') return;
+  mediaLoadToken++;
   cleanupMediaUrl();
 
   hideAllMainViews();
@@ -1252,12 +1254,13 @@ function setupLazyMediaObserver() {
 }
 
 async function loadCardMedia(container, originalName) {
+  const generation = historyGeneration;
   if (!originalName) {
     container.textContent = 'Bez multimediów';
     return;
   }
   const asset = await findMediaAsset(originalName);
-  if (!container.isConnected) return;
+  if (generation !== historyGeneration || !container.isConnected) return;
   if (!asset) {
     container.textContent = 'Brak: ' + originalName;
     return;
@@ -1270,6 +1273,7 @@ async function loadCardMedia(container, originalName) {
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
+    img.onerror = () => { if (generation === historyGeneration) container.textContent = 'Brak: ' + originalName; };
     container.appendChild(img);
   } else {
     const video = document.createElement('video');
@@ -1278,6 +1282,7 @@ async function loadCardMedia(container, originalName) {
     video.muted = true;
     video.playsInline = true;
     video.controls = true;
+    video.onerror = () => { if (generation === historyGeneration) container.textContent = 'Brak: ' + originalName; };
     video.addEventListener('play', () => { video.playbackRate = settings.playbackRate; });
     container.appendChild(video);
   }
@@ -1355,6 +1360,8 @@ function enterApp(tab = progress.lastTab || 'podstawowe') {
 }
 
 async function enterSetup() {
+  tabSwitchSequence++;
+  mediaLoadToken++;
   cleanupMediaUrl();
   cleanupHistoryMedia();
   $('app-screen').classList.add('hidden');
@@ -1431,13 +1438,6 @@ function bindEvents() {
     video.playbackRate = settings.playbackRate;
     try { await video.play(); } catch { /* user can tap again */ }
   });
-  $('media-video').addEventListener('click', async event => {
-    event.stopPropagation();
-    const video = event.currentTarget;
-    video.currentTime = 0;
-    video.playbackRate = settings.playbackRate;
-    try { await video.play(); } catch { /* ignored */ }
-  });
   $('media-video').addEventListener('play', event => { event.currentTarget.playbackRate = settings.playbackRate; });
 
   $('speed-select').addEventListener('change', async event => {
@@ -1505,9 +1505,14 @@ function bindEvents() {
 
   document.addEventListener('keydown', event => {
     if ($('app-screen').classList.contains('hidden') || $('quiz-container').classList.contains('hidden')) return;
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target;
+    if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
     if (waitingForContinue) {
-      continueAfterError();
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        continueAfterError();
+      }
       return;
     }
     const isExam = currentTab === 'egzamin';
@@ -1517,7 +1522,10 @@ function bindEvents() {
     const value = keys[event.key];
     if (!value) return;
     const button = document.querySelector(`.ans-btn[data-value="${value}"]`);
-    if (button) handleAnswer(value, button, event);
+    if (button && !button.disabled) {
+      event.preventDefault();
+      handleAnswer(value, button, event).catch(console.error);
+    }
   });
 }
 
