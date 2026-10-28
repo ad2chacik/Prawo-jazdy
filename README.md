@@ -36,3 +36,7 @@ Kod: `index.html`, `app.js`, `styles.css`, `sw.js`, `manifest.webmanifest`. Loka
 ## Architektura i testy
 
 Opis komponentów, strategii danych i ograniczeń znajduje się w [`ARCHITECTURE.md`](ARCHITECTURE.md). Podstawowe testy regresji wykonuje GitHub Actions (`tests/smoke.cjs`). Testy jednostkowe nie zastępują sprawdzenia prawdziwego XLSX, zgodności nazw multimediów i Safari na iPhonie.
+
+## Egzamin próbny
+
+Tryb egzaminu stosuje 32 pytania i punktację 74/68 zgodnie z § 19 rozporządzenia. **Nie odtwarza państwowego limitu 25 minut ani czasu na poszczególne pytania.** To tryb treningowy, nie pełna symulacja ośrodka egzaminowania. Źródło: https://eli.gov.pl/api/acts/DU/2023/2659/text.html
