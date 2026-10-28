@@ -1,0 +1,15 @@
+name: Verify PWA
+on:
+  push:
+  pull_request:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: node --check app.js && node --check sw.js
+      - name: Check manifest
+        run: node -e "JSON.parse(require('fs').readFileSync('manifest.webmanifest', 'utf8'))"
+      - name: Run smoke tests
+        run: node tests/smoke.cjs
