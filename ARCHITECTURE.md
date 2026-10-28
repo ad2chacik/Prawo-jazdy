@@ -10,7 +10,7 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 
 | Plik | Odpowiedzialność |
 | --- | --- |
-| `index.html` | Układ interfejsu, semantyka, dostępność |
+| `index.html` | Układ interfejsu, semantyka, dostępność, pierwsze uruchomienie, podgląd obrazów |
 | `styles.css` | Responsywny wygląd, Safari/iPhone |
 | `app.js` | Import, IndexedDB, logika nauki/egzaminu, prezentacja, multimedia |
 | `sw.js` | Cache tylko powłoki aplikacji i fallback offline |
@@ -97,3 +97,13 @@ a nie pełna symulacja egzaminu państwowego. Nie sugerować inaczej w interfejs
 - GitHub Pages limits: https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits
 - Service Worker: https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers
 - Safari video: https://developer.apple.com/documentation/webkit/delivering-video-content-for-safari
+
+## Responsywność i nawigacja
+
+- Wyświetlacz główny ma `aspect-ratio: 16 / 10` na telefonie, tablecie i komputerze. To proporcja ramki, a nie pliku.
+- `img` i `video` są osadzone w ramce z `object-fit: contain`, czarnym tłem i bez zmiany wysokości po wczytaniu.
+- Filmy używają natywnego sterowania, `preload=metadata`, `muted` i `playsinline`; w Safari automatyczne odtwarzanie może zostać ograniczone, wtedy użytkownik naciska Play.
+- Obrazy otwierają powiększony podgląd w natywnym `<dialog>`.
+- Pierwsze uruchomienie pokazuje krótką instrukcję; po zamknięciu ustawienie `welcome_seen_v1` zapisuje się w IndexedDB. Pomoc można otworzyć ponownie z ustawień.
+- Ręczny przycisk wyboru Excela usunięto. Baza jest wczytywana z `data/questions.json` lub `data/questions.xlsx` automatycznie, a import pakietu ZIP zostaje jako awaryjna funkcja lokalna.
+- Publiczna baza musi zostać fizycznie opublikowana; zmiana samego interfejsu tego nie zastępuje.
