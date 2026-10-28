@@ -426,7 +426,7 @@ async function refreshSetupStatus() {
   $('question-count').textContent = String(questions.length);
   $('question-status').textContent = questions.length ? 'baza gotowa' : 'brak bazy';
   $('media-count').textContent = String(mediaCount);
-  $('media-status').textContent = mediaCount ? 'zapisane na urządzeniu' : 'online na żądanie';
+  $('media-status').textContent = mediaCount ? 'zapisane na urządzeniu' : 'nie zapisano lokalnie';
   $('progress-count').textContent = String(progress.correct.length);
 
   $('start-btn').disabled = questions.length === 0;
