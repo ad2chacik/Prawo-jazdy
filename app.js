@@ -1544,6 +1544,7 @@ async function init() {
     await updateStorageStatus();
 
     if (questions.length) enterApp(progress.lastTab);
+    else document.querySelector('#setup-screen details.panel')?.setAttribute('open', '');
   } catch (error) {
     console.error(error);
     $('question-status').textContent = 'błąd pamięci';
