@@ -5,14 +5,26 @@ const vm = require('node:vm');
 
 async function main() {
   const writes = [];
+  const publishedWrites = [];
+  const elements = new Map();
+  function element(id) {
+    if (!elements.has(id)) elements.set(id, {
+      textContent: '',
+      classList: { add() {}, remove() {} }
+    });
+    return elements.get(id);
+  }
   const context = vm.createContext({
     document: {
       addEventListener() {},
-      getElementById() { return null; },
+      getElementById: element,
       baseURI: 'https://example.org/Prawo-jazdy/'
     },
-    console, URL, Blob, Date, Array, Set, Map, Math, Number, String,
-    Promise, setTimeout, writes
+    console, URL, Blob, AbortController, Date, Array, Set, Map, Math, Number, String,
+    Promise, setTimeout: (callback, ms) => setTimeout(callback, Math.min(ms, 100)),
+    clearTimeout, writes, publishedWrites,
+    window: { JSZip: {} },
+    fetch: async () => ({ ok: false })
   });
   vm.runInContext(fs.readFileSync('app.js', 'utf8'), context, { filename: 'app.js' });
   const run = code => vm.runInContext(code, context);
@@ -76,6 +88,43 @@ async function main() {
   assert.equal(intercepted('https://example.org/Prawo-jazdy/app.js'), true);
   assert.equal(intercepted('https://example.org/Prawo-jazdy/', { mode: 'navigate' }), true);
 
-  console.log('PASS: validation, CSV, paths, streaming, progress and service worker');
+  // Published version updates must never overwrite manually imported question banks.
+  assert.equal(run("resolveXlsxSheetPath('worksheets/sheet2.xml')"), 'xl/worksheets/sheet2.xml');
+  assert.equal(run("resolveXlsxSheetPath('/xl/worksheets/sheet3.xml')"), 'xl/worksheets/sheet3.xml');
+  assert.throws(() => run("parseXlsxXML('oops', {parseFromString() {return {documentElement:{localName:'parsererror'},getElementsByTagName() {return []}}}}, 'bad.xml')"), /Uszkodzony XML/);
+
+  const Q = (id, question) => ({
+    'Numer pytania': id, Pytanie: question, 'Poprawna odp': 'T',
+    Kategorie: 'B', 'Liczba punktów': 3
+  });
+  const older = [Q('a', 'Unchanged'), Q('b', 'Old question')];
+  const newer = [Q('a', 'Unchanged'), Q('b', 'Changed question')];
+  context.publishedPayload = JSON.stringify(newer);
+  run("questions = [normalizeQuestion(" + JSON.stringify(older[0]) + "), normalizeQuestion(" + JSON.stringify(older[1]) + ")]");
+  run("progress = normalizeProgress({correct:['a','b'],errors:['b'],all_time_errors:['b'],lastQuestionByTab:{podstawowe:'b'}})");
+  run("kvGet = async key => key === 'questions_meta' ? {source:'published',version:'v1'} : null");
+  run("replaceStoredQuestions = async (rows, meta) => publishedWrites.push({ids:rows.map(q=>q._id), meta})");
+  run("kvSet = async () => {}");
+  run("fetch = async path => path.includes('catalog.json') ? {ok:true,json:async()=>({version:'v2'})} : path.includes('questions.json') ? {ok:true,headers:{get:()=>null},text:async()=>publishedPayload} : {ok:false}");
+  assert.equal(await run('importPublishedQuestions()'), true);
+  assert.equal(publishedWrites.length, 1);
+  assert.equal(publishedWrites[0].meta.source, 'published');
+  assert.equal(publishedWrites[0].meta.version, 'v2');
+  assert.deepEqual(Array.from(run('progress.correct')), ['a']);
+  assert.deepEqual(Array.from(run('progress.errors')), []);
+  assert.equal(run('progress.lastQuestionByTab.podstawowe'), undefined);
+
+  run("questions = [normalizeQuestion(" + JSON.stringify(older[0]) + ")]");
+  run("kvGet = async key => key === 'questions_meta' ? {source:'manual'} : null");
+  run("fetch = async () => { throw new Error('Manual database should never fetch'); }");
+  assert.equal(await run('importPublishedQuestions()'), false);
+  assert.equal(run('questions.length'), 1);
+
+  // ZIP bombs and oversized archives must be rejected before JSZip expands data.
+  run("window.JSZip = {loadAsync: async () => {throw new Error('ZIP was expanded unexpectedly');}}");
+  await run("importPackage({size:251 * 1024 * 1024, name:'oversized.zip'})");
+  assert.match(element('import-progress').textContent, /250 MiB/);
+
+  console.log('PASS: validation, import, database updates, progress, ZIP safety and service worker');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
