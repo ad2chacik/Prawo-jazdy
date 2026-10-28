@@ -14,11 +14,11 @@ https://ad2chacik.github.io/Prawo-jazdy/
 
 `Numer pytania`, `Pytanie`, `Odpowiedź A`, `Odpowiedź B`, `Odpowiedź C`, `Poprawna odp`, `Media`, `Liczba punktów`, `Kategorie`.
 
-Import XLSX i ZIP działa offline dzięki lokalnej bibliotece JSZip.
+Import XLSX i ZIP działa offline dzięki lokalnej bibliotece JSZip. Ze względów bezpieczeństwa pojedynczy importowany ZIP ma limit 250 MiB oraz limity rozpakowywania. Duży folder multimediów importuj bezpośrednio jako folder na komputerze.
 
 ### Ważne ograniczenia
 
-- Automatyczne pobranie działa **tylko gdy użytkownik nie ma już lokalnej bazy**. Istniejące dane mają pierwszeństwo, co zabezpiecza zapisany postęp.
+- Nowi użytkownicy pobierają bazę automatycznie. Dodaj `data/catalog.json` z polem `version` (np. `"072026"`), aby przy kolejnych publikacjach użytkownicy bazy online otrzymywali nowe wydanie. Identyfikatory niezmienionych pytań zachowują postęp; zmienione pytania tracą poprzedni status. Bazy importowane ręcznie nie są automatycznie zastępowane.
 - Offline: interfejs i pobrane pytania są przechowywane lokalnie. Filmy z `media/` są odtwarzane przez internet. Aby oglądać je bez internetu, należy wcześniej ręcznie zaimportować multimedia (plikami, folderem lub ZIP). Nie obiecujemy automatycznego przechowywania 900 MB na iPhonie.
 - GitHub Pages: zalecana maksymalna wielkość publikacji 1 GB i miękki limit transferu 100 GB/miesiąc. Wgrywanie przez stronę GitHub ogranicza pojedyncze pliki do 25 MiB.
 - Przed publikacją oficjalnych filmów i zdjęć sprawdź prawa do redystrybucji. Gov.pl wyraźnie informuje, że niektóre zasoby są własnością osób trzecich.
