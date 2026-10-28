@@ -5,6 +5,7 @@ const DB_VERSION = 2;
 const MEDIA_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'mp4', 'm4v', 'mov', 'webm', 'wmv']);
 const PUBLISHED_QUESTION_PATHS = ['./data/questions.json', './data/questions.xlsx'];
 const PUBLISHED_MEDIA_DIR = './media/';
+const PUBLISHED_MEDIA_MAP_PATH = './data/media-map.json';
 let answering = false;
 let tabSwitchSequence = 0;
 let historyGeneration = 0;
@@ -37,6 +38,7 @@ let currentMediaUrl = null;
 let historyObserver = null;
 let historyUrls = new Set();
 let installPrompt = null;
+let publishedMediaMapPromise = null;
 
 let examQuestions = [];
 let examAnswers = [];
@@ -870,9 +872,51 @@ async function importPublishedQuestions() {
   return false;
 }
 
-function publishedMediaURL(fileName) {
+function normalizePublishedMediaMap(raw) {
+  if (!raw || raw.version !== 1 || !raw.bases || !raw.files ||
+      typeof raw.bases !== 'object' || typeof raw.files !== 'object') return null;
+
+  const bases = {};
+  for (const [key, value] of Object.entries(raw.bases)) {
+    if (!key || typeof value !== 'string') continue;
+    try {
+      const url = new URL(value, document.baseURI);
+      if (!['http:', 'https:'].includes(url.protocol)) continue;
+      bases[key] = url.href.endsWith('/') ? url.href : url.href + '/';
+    } catch { /* Ignore malformed bases. */ }
+  }
+  if (!Object.keys(bases).length) return null;
+
+  const files = Object.create(null);
+  for (const [rawName, location] of Object.entries(raw.files)) {
+    const name = normalizeFileName(rawName);
+    if (!name || !isMediaFileName(name) || !Object.hasOwn(bases, location)) continue;
+    files[name] = location;
+  }
+  return { version: 1, bases, files };
+}
+
+async function loadPublishedMediaMap() {
+  if (!publishedMediaMapPromise) {
+    publishedMediaMapPromise = fetchWithTimeout(PUBLISHED_MEDIA_MAP_PATH, 5000,
+      response => response.ok ? response.json() : null)
+      .then(normalizePublishedMediaMap)
+      .catch(error => {
+        console.warn('Mapa multimediów jest niedostępna; używam głównego repozytorium.', error);
+        return null;
+      });
+  }
+  return publishedMediaMapPromise;
+}
+
+function publishedMediaURL(fileName, mediaMap = null) {
   const name = normalizeFileName(fileName);
   if (!name || name === '.' || name === '..' || !isMediaFileName(name)) return null;
+  if (mediaMap) {
+    const location = mediaMap.files[name];
+    if (!location || !mediaMap.bases[location]) return null;
+    return new URL(encodeURIComponent(name), mediaMap.bases[location]).href;
+  }
   return new URL(PUBLISHED_MEDIA_DIR + encodeURIComponent(name), document.baseURI).href;
 }
 
@@ -894,8 +938,9 @@ async function findMediaAsset(originalName) {
 
   // Stream published files directly, so Safari can request video byte ranges.
   // Absence of a file is handled by the <img>/<video> error event.
+  const mediaMap = await loadPublishedMediaMap();
   for (const name of candidates) {
-    const url = publishedMediaURL(name);
+    const url = publishedMediaURL(name, mediaMap);
     if (url) return { name, url, type: mimeFromExtension(extensionOf(name)) };
   }
   return null;

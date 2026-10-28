@@ -20,7 +20,10 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 | `.github/workflows/verify.yml` | Sprawdzanie składni i testów po push |
 | `data/questions.json` lub `data/questions.xlsx` | Publiczna baza pytań (po publikacji przez właściciela) |
 | `data/catalog.json` | Opcjonalna wersja opublikowanej bazy do bezpiecznych aktualizacji |
-| `media/*.mp4`, `media/*.jpg` | Publiczne multimedia (po publikacji przez właściciela) |
+| `data/media-map.json` | Generowana mapa nazwy pliku do jednej z dwóch stron Pages |
+| `media/*.mp4`, `media/*.jpg` | Pierwsza część publicznych multimediów |
+| `Prawo-jazdy-media/media/*` | Druga część publicznych multimediów na osobnej stronie Pages |
+| `scripts/publish-media.sh` | Walidacja, równy podział, publikacja i kontrola obu wdrożeń |
 
 ## Przepływ danych
 
@@ -28,7 +31,7 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 2. Przy braku bazy aplikacja pobiera `data/questions.json`, potem `data/questions.xlsx`. Przy lokalnej bazie pochodzącej z publikacji sprawdza `data/catalog.json`; gdy `version` się zmieni, pobiera aktualną bazę. Baza ręcznie importowana nie jest automatycznie zastępowana.
 3. Dane po normalizacji trafiają do IndexedDB, gdzie pozostają dostępne offline. Podczas aktualizacji zachowujemy postęp dla identyfikatorów o niezmienionej treści i odpowiedzi. Postęp pytań zmodyfikowanych jest resetowany. Aktualizacja, która usunęłaby ponad 20% pytań, jest wstrzymywana do ręcznej weryfikacji.
 4. Każdy użytkownik ma osobny postęp przypisany do identyfikatorów pytań. Zapis jest kolejkowany, aby wcześniejsza transakcja nie nadpisała nowszego stanu.
-5. Dla obrazów i filmów pierwszeństwo ma ręcznie zaimportowana kopia lokalna. W innym przypadku następuje odczyt publicznego pliku z `media/` przez standardowe elementy `img` i `video`.
+5. Dla obrazów i filmów pierwszeństwo ma ręcznie zaimportowana kopia lokalna. W innym przypadku aplikacja pobiera `data/media-map.json` i wybiera `Prawo-jazdy/media/` albo `Prawo-jazdy-media/media/`. Przy braku mapy zachowuje zgodność wsteczną i próbuje głównego `media/`.
 6. `video` odtwarza MP4 z obsługą natywnego HTTP Range. Duże pliki nie są automatycznie kopiowane do IndexedDB ani Cache API.
 7. Service Worker przechowuje tylko elementy interfejsu. Nie przechwytuje `/media/`, `/data/` ani żądań `Range`.
 
@@ -47,7 +50,8 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 │   └── JSZIP-LICENSE.md
 ├── data/
 │   ├── questions.json
-│   └── catalog.json
+│   ├── catalog.json
+│   └── media-map.json
 ├── media/
 │   ├── nazwa-zdjecia.jpg
 │   └── nazwa-filmu.mp4
@@ -55,7 +59,7 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
     └── smoke.cjs
 ```
 
-Pliki w `data/` i `media/` powyżej są **docelową strukturą**, a nie stwierdzeniem, że baza i multimedia zostały już opublikowane.
+Druga część plików ma analogiczny katalog `media/` w repozytorium `Prawo-jazdy-media`. Mapa powstaje w tym samym przebiegu co publikacja i jest wysyłana do głównej aplikacji dopiero po potwierdzeniu wdrożenia dodatkowej strony.
 
 ## Egzamin próbny
 
@@ -76,6 +80,8 @@ a nie pełna symulacja egzaminu państwowego. Nie sugerować inaczej w interfejs
 - Identyfikatory pytań muszą pozostać stabilne przy aktualizacjach bazy, inaczej postęp użytkownika może przestać pasować.
 - Nazwy multimediów są normalizowane do małych liter i Unicode NFC. W katalogu publicznym należy zachować takie same nazwy.
 - W przypadku `.wmv` aplikacja próbuje odtworzyć `.mp4` o identycznej nazwie bazowej.
+- Mapa w wersji 1 wskazuje jedynie bazy HTTP(S); nazwy spoza kompletnej mapy nie są zgadywane między repozytoriami.
+- Publikator odrzuca kolizje nazw, niezgodność z Excelem, liczbę inną niż 1702 i pliki ponad 100 MiB. Kopie sprawdza sumami SHA-256.
 - Nie publikować plików multimedialnych bez upewnienia się, że wolno je redystrybuować.
 
 ## Stan wdrożenia i dalsze prace
@@ -86,8 +92,8 @@ a nie pełna symulacja egzaminu państwowego. Nie sugerować inaczej w interfejs
 - [x] Własny postęp w IndexedDB
 - [x] Strumieniowanie opublikowanych MP4
 - [x] Ograniczony cache aplikacji
-- [ ] Publikacja rzeczywistego `KATALOG_dla_kandydatów_na_kierowców_072026.xlsx` po sprawdzeniu kolumn i pytań
-- [ ] Publikacja skompresowanego zestawu multimediów po sprawdzeniu wynikowego rozmiaru, nazw i uprawnień
+- [x] Publikacja rzeczywistego pliku XLSX kategorii B i wersji katalogu
+- [ ] Uruchomienie `scripts/publish-media.sh` na kompletnym folderze 1702 multimediów po sprawdzeniu uprawnień
 - [ ] E2E na fizycznym iPhonie, w tym połączenie/bez internetu
 - [x] Kontrolowany mechanizm aktualizacji opublikowanej bazy przez `catalog.json`
 - [ ] Testy z rzeczywistym XLSX w Safari i walidacja jakości kompletnego katalogu

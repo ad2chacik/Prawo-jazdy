@@ -13,3 +13,5 @@ Nazwy wymaganych kolumn: Numer pytania, Pytanie, Odpowiedź A/B/C, Poprawna odp,
 Nie publikuj plików, do których nie masz praw do publicznego udostępnienia.
 
 Kolejność publikacji: najpierw wgraj nowy `questions.json`/`questions.xlsx` i sprawdź jego dostępność na GitHub Pages, a dopiero potem zmień `catalog.json`. Dzięki temu odbiorcy nie oznaczą starej bazy jako nowej podczas publikacji. Najlepiej opublikować oba pliki w jednym commicie.
+
+`media-map.json` jest generowany przez `scripts/publish-media.sh`. Nie edytuj go ręcznie: musi odpowiadać dokładnemu podziałowi plików między dwoma repozytoriami Pages.

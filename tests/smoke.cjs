@@ -33,6 +33,12 @@ async function main() {
   assert.equal(run("publishedMediaURL('movie.mp4')"), 'https://example.org/Prawo-jazdy/media/movie.mp4');
   assert.equal(run("publishedMediaURL('../movie.mp4')"), 'https://example.org/Prawo-jazdy/media/movie.mp4');
   assert.equal(run("publishedMediaURL('evil.js')"), null);
+  const mediaMap = run("normalizePublishedMediaMap({version:1,bases:{primary:'./media/',secondary:'https://example.org/Prawo-jazdy-media/media/'},files:{'MOVIE.MP4':'secondary','photo.jpg':'primary','evil.js':'secondary'}})");
+  context.mediaMap = mediaMap;
+  assert.equal(run("publishedMediaURL('movie.mp4', mediaMap)"), 'https://example.org/Prawo-jazdy-media/media/movie.mp4');
+  assert.equal(run("publishedMediaURL('photo.jpg', mediaMap)"), 'https://example.org/Prawo-jazdy/media/photo.jpg');
+  assert.equal(run("publishedMediaURL('missing.mp4', mediaMap)"), null);
+  assert.equal(run("normalizePublishedMediaMap({version:2,bases:{primary:'./media/'},files:{}})"), null);
   assert.equal(run("normalizeQuestion({'Pytanie':'test','Poprawna odp':'Z','Kategorie':'B'})"), null);
   const valid = run("normalizeQuestion({'Numer pytania':1,'Pytanie':'test','Poprawna odp':'T','Kategorie':'B'})");
   assert.equal(valid['PrawdziwaKategoria'], 'PODSTAWOWY');
@@ -43,13 +49,18 @@ async function main() {
   assert.equal(csv[0].Pytanie, 'A; B');
 
   // The browser should stream online video rather than wait for a full Blob.
-  run('getMedia = async () => undefined');
+  run('getMedia = async () => undefined; loadPublishedMediaMap = async () => null');
   const online = await run("findMediaAsset('FOLDER/CLIP.MP4')");
   assert.equal(online.name, 'clip.mp4');
   assert.equal(online.url, 'https://example.org/Prawo-jazdy/media/clip.mp4');
   assert.equal(Object.hasOwn(online, 'blob'), false);
   const wmv = await run("findMediaAsset('video.wmv')");
   assert.equal(wmv.name, 'video.mp4');
+
+  run("loadPublishedMediaMap = async () => mediaMap");
+  const mapped = await run("findMediaAsset('movie.mp4')");
+  assert.equal(mapped.url, 'https://example.org/Prawo-jazdy-media/media/movie.mp4');
+  assert.equal(await run("findMediaAsset('missing.mp4')"), null);
 
   // In-flight writes must commit in submission order.
   run("kvSet = async (key, value) => { await new Promise(resolve => setTimeout(resolve, 3)); writes.push(JSON.stringify({correct: value.correct, lastQuestion: value.lastQuestionByTab.podstawowe})); }");
