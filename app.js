@@ -522,6 +522,13 @@ async function parseXLSXArrayBuffer(buffer) {
   if (!window.JSZip) throw new Error('Brak lokalnego modułu ZIP potrzebnego do odczytu XLSX.');
   if (buffer.byteLength > 25 * 1024 * 1024) throw new Error('Plik XLSX przekracza 25 MiB.');
   const zip = await JSZip.loadAsync(buffer);
+  const unpackedSizes = Object.values(zip.files)
+    .filter(item => !item.dir)
+    .map(item => Number(item._data?.uncompressedSize));
+  if (unpackedSizes.some(size => Number.isFinite(size) && size > 100 * 1024 * 1024) ||
+      unpackedSizes.reduce((sum, size) => sum + (Number.isFinite(size) ? size : 0), 0) > 150 * 1024 * 1024) {
+    throw new Error('XLSX jest zbyt duży po rozpakowaniu. Wczytaj mniejszą bazę.');
+  }
   const parser = new DOMParser();
 
   const sharedStrings = [];
