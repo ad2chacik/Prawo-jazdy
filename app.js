@@ -3,6 +3,11 @@
 const DB_NAME = 'prawko-pwa-db';
 const DB_VERSION = 2;
 const MEDIA_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'mp4', 'm4v', 'mov', 'webm', 'wmv']);
+const PUBLISHED_QUESTION_PATHS = ['./data/questions.json', './data/questions.xlsx'];
+const PUBLISHED_MEDIA_DIR = './media/';
+const MAX_CACHED_MEDIA_BYTES = 25 * 1024 * 1024;
+let answering = false;
+
 
 const DEFAULT_PROGRESS = () => ({
   correct: [],
@@ -161,7 +166,7 @@ async function putMediaRecords(records) {
 }
 
 function normalizeFileName(name) {
-  return String(name || '').split('/').pop().trim().normalize('NFC').toLowerCase();
+  return String(name || '').split(/[\\/]/).pop().trim().normalize('NFC').toLowerCase();
 }
 
 function extensionOf(name) {
@@ -194,7 +199,7 @@ function normalizeQuestion(raw, fallbackIndex = 0) {
   const answerB = String(raw['Odpowiedź B'] ?? raw.answerB ?? '').trim();
   const answerC = String(raw['Odpowiedź C'] ?? raw.answerC ?? '').trim();
   const correct = String(raw['Poprawna odp'] ?? raw.correct ?? '').trim().toUpperCase();
-  if (!correct) return null;
+  if (!['T', 'N', 'A', 'B', 'C'].includes(correct)) return null;
 
   const rawNumber = raw['Numer pytania'] ?? raw.number ?? raw.id ?? '';
   const questionNumber = String(rawNumber).trim();
@@ -207,6 +212,9 @@ function normalizeQuestion(raw, fallbackIndex = 0) {
   if (!['PODSTAWOWY', 'SPECJALISTYCZNY'].includes(category)) {
     category = (!answerA || correct === 'T' || correct === 'N') ? 'PODSTAWOWY' : 'SPECJALISTYCZNY';
   }
+
+  if (category === 'PODSTAWOWY' && !['T', 'N'].includes(correct)) return null;
+  if (category === 'SPECJALISTYCZNY' && !({A: answerA, B: answerB, C: answerC})[correct]) return null;
 
   return {
     _id: baseId,
@@ -708,6 +716,82 @@ async function importPackage(file) {
   }
 }
 
+async function importPublishedQuestions() {
+  // Never overwrite a user's existing local database or progress.
+  if (questions.length) return false;
+  for (const path of PUBLISHED_QUESTION_PATHS) {
+    try {
+      const response = await fetch(path, { cache: 'no-cache' });
+      if (!response.ok) continue;
+      const size = Number(response.headers.get('content-length') || 0);
+      if (size > 25 * 1024 * 1024) throw new Error('Opublikowana baza jest zbyt duża.');
+      const parsed = path.endsWith('.json')
+        ? await response.json()
+        : await parseXLSXArrayBuffer(await response.arrayBuffer());
+      const clean = buildQuestionDatabase(Array.isArray(parsed) ? parsed : parsed.questions);
+      await replaceStoredQuestions(clean);
+      questions = clean;
+      reconcileProgress();
+      await saveProgress();
+      prepareDecks();
+      return true;
+    } catch (error) {
+      console.warn('Nie udało się automatycznie pobrać ' + path, error);
+    }
+  }
+  return false;
+}
+
+function publishedMediaURL(fileName) {
+  const name = normalizeFileName(fileName);
+  if (!name || name === '.' || name === '..' || !isMediaFileName(name)) return null;
+  return new URL(PUBLISHED_MEDIA_DIR + encodeURIComponent(name), document.baseURI).href;
+}
+
+async function findMediaAsset(originalName) {
+  const original = normalizeFileName(originalName);
+  if (!original) return null;
+  const candidates = original.endsWith('.wmv')
+    ? [original.replace(/\.wmv$/i, '.mp4'), original] : [original];
+
+  for (const name of candidates) {
+    const record = await getMedia(name);
+    if (record?.blob && extensionOf(name) !== 'wmv') {
+      return { name, blob: record.blob, type: record.type };
+    }
+  }
+
+  for (const name of candidates) {
+    if (extensionOf(name) === 'wmv') continue;
+    const url = publishedMediaURL(name);
+    if (!url) continue;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const reportedSize = Number(response.headers.get('content-length') || 0);
+      if (reportedSize > MAX_CACHED_MEDIA_BYTES) {
+        await response.body?.cancel();
+        return { name, url, type: mimeFromExtension(extensionOf(name)) };
+      }
+      const blob = await response.blob();
+      if (!blob.size) continue;
+      if (blob.size > MAX_CACHED_MEDIA_BYTES) {
+        return { name, url, type: mimeFromExtension(extensionOf(name)) };
+      }
+      const type = blob.type || mimeFromExtension(extensionOf(name));
+      try {
+        await putMediaRecords([{ name, blob, type, size: blob.size, updatedAt: Date.now() }]);
+      } catch (error) {
+        console.warn('Nie udało się zachować multimediów do pracy offline:', error);
+      }
+      return { name, blob, type };
+    } catch (error) {
+      console.warn('Nie udało się pobrać multimediów:', name, error);
+    }
+  }
+  return null;
+}
+
 function downloadJSON(filename, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -744,54 +828,37 @@ function resetMediaBox(message = 'Pytanie bez multimediów') {
 async function setMedia(name) {
   const token = ++mediaLoadToken;
   resetMediaBox('Ładowanie multimediów…');
-
   const originalName = String(name || '').trim();
   if (!originalName || originalName.toLowerCase() === 'nan') {
-    if (token === mediaLoadToken) resetMediaBox('Pytanie bez multimediów');
+    resetMediaBox('Pytanie bez multimediów');
     return;
   }
-
-  let safeName = normalizeFileName(originalName);
-  let record = await getMedia(safeName);
-  if (!record && safeName.endsWith('.wmv')) {
-    safeName = safeName.replace(/\.wmv$/i, '.mp4');
-    record = await getMedia(safeName);
-  }
+  const asset = await findMediaAsset(originalName);
   if (token !== mediaLoadToken) return;
-
-  if (!record?.blob) {
-    resetMediaBox(`Brak pliku: ${originalName}`);
+  if (!asset) {
+    resetMediaBox('Brak pliku: ' + originalName);
     return;
   }
-
-  const ext = extensionOf(safeName);
-  if (ext === 'wmv') {
-    resetMediaBox('WMV nie jest obsługiwany przez iPhone. Dodaj wersję MP4 o tej samej nazwie.');
-    return;
-  }
-
   cleanupMediaUrl();
-  currentMediaUrl = URL.createObjectURL(record.blob);
+  currentMediaUrl = asset.blob ? URL.createObjectURL(asset.blob) : null;
+  const url = currentMediaUrl || asset.url;
   $('media-text').classList.add('hidden');
-
-  if ((record.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
+  const ext = extensionOf(asset.name);
+  if ((asset.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
     const image = $('media-img');
-    image.src = currentMediaUrl;
+    image.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć: ' + originalName); };
+    image.src = url;
     image.classList.remove('hidden');
     return;
   }
-
   const video = $('media-video');
-  video.src = currentMediaUrl;
+  video.onerror = () => { if (token === mediaLoadToken) resetMediaBox('Nie udało się otworzyć filmu: ' + originalName); };
+  video.src = url;
   video.playbackRate = settings.playbackRate;
   video.classList.remove('hidden');
   $('replay-btn').classList.remove('hidden');
   video.load();
-  try {
-    await video.play();
-  } catch {
-    if (token === mediaLoadToken) $('replay-btn').classList.remove('hidden');
-  }
+  try { await video.play(); } catch { /* Safari may require a tap */ }
 }
 
 function createAnswerButton(label, text, keyNumber, mode) {
@@ -1000,7 +1067,9 @@ function markCorrectness(correct, selectedButton) {
 
 async function handleAnswer(choice, button, event) {
   event?.stopPropagation();
-  if (waitingForContinue) return;
+  if (waitingForContinue || answering) return;
+  answering = true;
+  try {
 
   if (currentTab === 'egzamin') {
     const question = examQuestions[examIndex];
@@ -1051,6 +1120,7 @@ async function handleAnswer(choice, button, event) {
     waitingForContinue = true;
     $('continue-btn').classList.remove('hidden');
   }
+  } finally { answering = false; }
 }
 
 function continueAfterError() {
@@ -1180,25 +1250,17 @@ async function loadCardMedia(container, originalName) {
     container.textContent = 'Bez multimediów';
     return;
   }
-  let safeName = normalizeFileName(originalName);
-  let record = await getMedia(safeName);
-  if (!record && safeName.endsWith('.wmv')) {
-    safeName = safeName.replace(/\.wmv$/i, '.mp4');
-    record = await getMedia(safeName);
-  }
-  if (!record?.blob) {
-    container.textContent = `Brak: ${originalName}`;
+  const asset = await findMediaAsset(originalName);
+  if (!container.isConnected) return;
+  if (!asset) {
+    container.textContent = 'Brak: ' + originalName;
     return;
   }
-  const ext = extensionOf(safeName);
-  if (ext === 'wmv') {
-    container.textContent = 'WMV: dodaj MP4';
-    return;
-  }
-  const url = URL.createObjectURL(record.blob);
-  historyUrls.add(url);
+  const ext = extensionOf(asset.name);
+  const url = asset.blob ? URL.createObjectURL(asset.blob) : asset.url;
+  if (asset.blob) historyUrls.add(url);
   container.replaceChildren();
-  if ((record.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
+  if ((asset.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
@@ -1466,6 +1528,7 @@ async function init() {
     await kvSet('progress', progress);
     await kvSet('settings', settings);
     prepareDecks();
+    await importPublishedQuestions();
 
     bindEvents();
     setupInstallFlow();
