@@ -7,6 +7,7 @@ const PUBLISHED_QUESTION_PATHS = ['./data/questions.json', './data/questions.xls
 const PUBLISHED_MEDIA_DIR = './media/';
 const MAX_CACHED_MEDIA_BYTES = 25 * 1024 * 1024;
 let answering = false;
+let tabSwitchSequence = 0;
 
 
 const DEFAULT_PROGRESS = () => ({
@@ -923,6 +924,7 @@ function cleanupHistoryMedia() {
 }
 
 async function switchTab(tab) {
+  const switchId = ++tabSwitchSequence;
   cleanupHistoryMedia();
   waitingForContinue = false;
   $('continue-btn').classList.add('hidden');
@@ -933,6 +935,7 @@ async function switchTab(tab) {
   if (tab !== 'egzamin') {
     progress.lastTab = tab;
     await saveProgress();
+    if (switchId !== tabSwitchSequence) return;
   }
 
   if (tab === 'lista_bledow') {
@@ -1095,6 +1098,7 @@ async function handleAnswer(choice, button, event) {
   const correct = question['Poprawna odp'];
   const isCorrect = choice === correct;
   const qId = question._id;
+  const answerTab = currentTab;
 
   if (isCorrect) {
     if (!progress.correct.includes(qId)) progress.correct.push(qId);
@@ -1107,6 +1111,7 @@ async function handleAnswer(choice, button, event) {
     if (!decks.bledy.some(q => q._id === qId)) decks.bledy.push(question);
   }
   await saveProgress();
+  if (currentTab !== answerTab) return;
 
   if (isCorrect) {
     if (currentTab === 'bledy') {
@@ -1207,6 +1212,7 @@ async function finishExam() {
   });
   await saveProgress();
   prepareDecks();
+  if (currentTab !== 'egzamin') return;
   cleanupMediaUrl();
 
   hideAllMainViews();
