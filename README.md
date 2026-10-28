@@ -7,7 +7,7 @@ https://ad2chacik.github.io/Prawo-jazdy/
 
 1. Prześlij `data/questions.json` **albo** `data/questions.xlsx` do tego repozytorium. Format JSON: tablica pytań lub obiekt `{"questions": [...]}`.
 2. Umieść pliki JPG/PNG/MP4 bezpośrednio w `media/`. Nazwy muszą odpowiadać kolumnie `Media` (najlepiej używaj małych liter). Jeśli pytanie wskazuje `xyz.wmv`, opublikuj `xyz.mp4`.
-3. Po wejściu na stronę nowy użytkownik automatycznie pobiera bazę. Film jest pobierany dopiero, gdy pojawia się w pytaniu. Mniejsze media (do 25 MiB) są zapisywane lokalnie po obejrzeniu.
+3. Po wejściu na stronę nowy użytkownik automatycznie pobiera bazę. Film jest pobierany dopiero, gdy pojawia się w pytaniu. Multimedia opublikowane w `media/` są odtwarzane strumieniowo, bez wcześniejszego pobierania całego filmu. Ręczny import multimediów nadal zapisuje je lokalnie do pracy offline.
 4. Własny postęp i historia błędów zapisują się osobno na każdym urządzeniu w IndexedDB. Nie są wysyłane do GitHub ani synchronizowane między urządzeniami.
 
 ### Pola bazy
@@ -19,7 +19,7 @@ Import XLSX i ZIP działa offline dzięki lokalnej bibliotece JSZip.
 ### Ważne ograniczenia
 
 - Automatyczne pobranie działa **tylko gdy użytkownik nie ma już lokalnej bazy**. Istniejące dane mają pierwszeństwo, co zabezpiecza zapisany postęp.
-- Offline: interfejs i pobrane pytania są przechowywane lokalnie. Filmy są pobierane na żądanie. Duże filmy nie są automatycznie przechowywane w IndexedDB i wymagają internetu, chyba że zostały wcześniej ręcznie zaimportowane.
+- Offline: interfejs i pobrane pytania są przechowywane lokalnie. Filmy z `media/` są odtwarzane przez internet. Aby oglądać je bez internetu, należy wcześniej ręcznie zaimportować multimedia (plikami, folderem lub ZIP). Nie obiecujemy automatycznego przechowywania 900 MB na iPhonie.
 - GitHub Pages: zalecana maksymalna wielkość publikacji 1 GB i miękki limit transferu 100 GB/miesiąc. Wgrywanie przez stronę GitHub ogranicza pojedyncze pliki do 25 MiB.
 - Przed publikacją oficjalnych filmów i zdjęć sprawdź prawa do redystrybucji. Gov.pl wyraźnie informuje, że niektóre zasoby są własnością osób trzecich.
 
@@ -31,4 +31,8 @@ Otwórz witrynę w Safari na iPhonie i wybierz **Udostępnij → Dodaj do ekranu
 
 ## Konserwacja
 
-Kod: `index.html`, `app.js`, `styles.css`, `sw.js`, `manifest.webmanifest`. Lokalny JSZip: `vendor/jszip.min.js`. Service Worker nie przechwytuje żądań HTTP Range ani /media/, aby nie psuć natywnego streamingu.
+Kod: `index.html`, `app.js`, `styles.css`, `sw.js`, `manifest.webmanifest`. Lokalny JSZip: `vendor/jszip.min.js`. Service Worker buforuje jedynie pliki interfejsu. Nie przechwytuje `data/`, `media/` ani żądań HTTP Range, aby nie dublować bazy i nie psuć natywnego streamingu.
+
+## Architektura i testy
+
+Opis komponentów, strategii danych i ograniczeń znajduje się w [`ARCHITECTURE.md`](ARCHITECTURE.md). Podstawowe testy regresji wykonuje GitHub Actions (`tests/smoke.cjs`). Testy jednostkowe nie zastępują sprawdzenia prawdziwego XLSX, zgodności nazw multimediów i Safari na iPhonie.
