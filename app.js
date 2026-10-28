@@ -118,7 +118,7 @@ async function getAllStoredQuestions() {
   });
 }
 
-async function replaceStoredQuestions(records) {
+async function replaceStoredQuestions(records, metadata = {}) {
   const tx = db.transaction('questions', 'readwrite');
   const store = tx.objectStore('questions');
   store.clear();
@@ -129,7 +129,7 @@ async function replaceStoredQuestions(records) {
   if (storedCount !== records.length) {
     throw new Error(`Błąd zapisu bazy: zapisano ${storedCount} z ${records.length} pytań.`);
   }
-  await kvSet('questions_meta', { count: storedCount, updatedAt: Date.now() });
+  await kvSet('questions_meta', { count: storedCount, updatedAt: Date.now(), source: metadata.source || 'manual', version: metadata.version || null });
 }
 
 async function clearStoredQuestions() {
@@ -585,7 +585,7 @@ async function replaceQuestions(rows, askBeforeReplace = true) {
   const clean = buildQuestionDatabase(rows);
   if (askBeforeReplace && questions.length && !confirm(`Zastąpić obecną bazę (${questions.length} pytań) nową bazą (${clean.length} pytań)?`)) return false;
 
-  await replaceStoredQuestions(clean);
+  await replaceStoredQuestions(clean, { source: 'manual' });
   questions = clean;
   reconcileProgress();
   await saveProgress();
@@ -724,29 +724,96 @@ async function importPackage(file) {
   }
 }
 
+// Cap startup network waits so users always reach the manual-import screen.
+async function fetchWithTimeout(url, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { cache: 'no-cache', signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readPublishedCatalog() {
+  try {
+    const response = await fetchWithTimeout('./data/catalog.json', 5000);
+    if (!response.ok) return null;
+    const manifest = await response.json();
+    if (typeof manifest?.version !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(manifest.version)) {
+      console.warn('data/catalog.json: brak poprawnego pola version.');
+      return null;
+    }
+    return manifest.version;
+  } catch (error) {
+    console.warn('Nie udało się sprawdzić wersji bazy:', error);
+    return null;
+  }
+}
+
+function forgetChangedQuestionProgress(previous, next) {
+  const before = new Map(previous.map(item => [item._id, item]));
+  const fields = ['Pytanie', 'Odpowiedź A', 'Odpowiedź B', 'Odpowiedź C',
+    'Poprawna odp', 'Media', 'Liczba punktów', 'PrawdziwaKategoria'];
+  const changed = new Set();
+  next.forEach(item => {
+    const old = before.get(item._id);
+    if (old && fields.some(field => String(old[field] ?? '') !== String(item[field] ?? ''))) {
+      changed.add(item._id);
+    }
+  });
+  for (const key of ['correct', 'errors', 'all_time_errors']) {
+    progress[key] = progress[key].filter(id => !changed.has(id));
+  }
+  Object.keys(progress.lastQuestionByTab).forEach(tab => {
+    if (changed.has(String(progress.lastQuestionByTab[tab]))) delete progress.lastQuestionByTab[tab];
+  });
+  return changed.size;
+}
+
 async function importPublishedQuestions() {
-  // Never overwrite a user's existing local database or progress.
-  if (questions.length) return false;
+  const metadata = (await kvGet('questions_meta')) || {};
+  const version = await readPublishedCatalog();
+  const isUpdate = questions.length > 0;
+  // Manual imports and older unmarked databases are not silently replaced.
+  if (isUpdate && !(version && metadata.source === 'published' && metadata.version !== version)) return false;
+
+  if (!isUpdate) setImportProgress('Pobieranie opublikowanej bazy pytań…');
   for (const path of PUBLISHED_QUESTION_PATHS) {
     try {
-      const response = await fetch(path, { cache: 'no-cache' });
+      const response = await fetchWithTimeout(path, 12000);
       if (!response.ok) continue;
-      const size = Number(response.headers.get('content-length') || 0);
-      if (size > 25 * 1024 * 1024) throw new Error('Opublikowana baza jest zbyt duża.');
-      const parsed = path.endsWith('.json')
-        ? await response.json()
-        : await parseXLSXArrayBuffer(await response.arrayBuffer());
+      const declaredSize = Number(response.headers.get('content-length') || 0);
+      if (declaredSize > 25 * 1024 * 1024) throw new Error('Opublikowana baza jest zbyt duża.');
+      let parsed;
+      if (path.endsWith('.json')) {
+        const raw = await response.text();
+        if (new Blob([raw]).size > 25 * 1024 * 1024) throw new Error('Opublikowana baza JSON przekracza 25 MiB.');
+        parsed = JSON.parse(raw);
+      } else {
+        const buffer = await response.arrayBuffer();
+        if (buffer.byteLength > 25 * 1024 * 1024) throw new Error('Opublikowany XLSX przekracza 25 MiB.');
+        parsed = await parseXLSXArrayBuffer(buffer);
+      }
       const clean = buildQuestionDatabase(Array.isArray(parsed) ? parsed : parsed.questions);
-      await replaceStoredQuestions(clean);
+      if (isUpdate && clean.length < questions.length * 0.8) {
+        throw new Error('Aktualizacja zawiera znacznie mniej pytań. Zachowano starszą bazę.');
+      }
+      const previous = questions;
+      await replaceStoredQuestions(clean, { source: 'published', version });
       questions = clean;
+      forgetChangedQuestionProgress(previous, clean);
       reconcileProgress();
       await saveProgress();
       prepareDecks();
+      if (isUpdate) showToast('Zaktualizowano bazę pytań bez kasowania zachowanego postępu.');
+      else setImportProgress('Pobrano ' + clean.length + ' pytań.');
       return true;
     } catch (error) {
-      console.warn('Nie udało się automatycznie pobrać ' + path, error);
+      console.warn('Nie udało się pobrać ' + path, error);
     }
   }
+  if (!isUpdate) setImportProgress('Baza online jest niedostępna. Możesz wczytać własny plik XLSX.');
   return false;
 }
 
