@@ -14,7 +14,7 @@ https://ad2chacik.github.io/Prawo-jazdy/
 
 `Numer pytania`, `Pytanie`, `Odpowiedź A`, `Odpowiedź B`, `Odpowiedź C`, `Poprawna odp`, `Media`, `Liczba punktów`, `Kategorie`.
 
-Import XLSX i ZIP działa offline dzięki lokalnej bibliotece JSZip. Ze względów bezpieczeństwa pojedynczy importowany ZIP ma limit 250 MiB oraz limity rozpakowywania. Duży folder multimediów importuj bezpośrednio jako folder na komputerze.
+Opublikowany XLSX jest odczytywany automatycznie dzięki lokalnej bibliotece JSZip — odwiedzający nie wybierają pliku Excel. Ręczny import pytań nie jest dostępny w interfejsie; opcjonalny import ZIP pozostaje dostępny do importowania multimediów i pakietów. Ze względów bezpieczeństwa pojedynczy ZIP ma limit 250 MiB oraz limity rozpakowywania. Duży folder multimediów importuj bezpośrednio jako folder na komputerze.
 
 ### Ważne ograniczenia
 
@@ -40,3 +40,9 @@ Opis komponentów, strategii danych i ograniczeń znajduje się w [`ARCHITECTURE
 ## Egzamin próbny
 
 Tryb egzaminu stosuje 32 pytania i punktację 74/68 zgodnie z § 19 rozporządzenia. **Nie odtwarza państwowego limitu 25 minut ani czasu na poszczególne pytania.** To tryb treningowy, nie pełna symulacja ośrodka egzaminowania. Źródło: https://eli.gov.pl/api/acts/DU/2023/2659/text.html
+
+## Wyświetlanie multimediów i pierwsze uruchomienie
+
+Duże okno 16:10 ma stały rozmiar względem szerokości widoku; zdjęcia i filmy nigdy nie są kadrowane (`object-fit: contain`), a wolną przestrzeń wypełnia czerń. Zdjęcie można powiększyć w oknie na cały ekran. Safari na iPhonie odtwarza filmy wewnątrz strony przez `playsinline` i natywne sterowanie. Przy pierwszym uruchomieniu pojawia się krótka instrukcja, którą można ponownie otworzyć z ustawień. W interfejsie nie używamy emoji.
+
+**Uwaga przed udostępnieniem linku znajomym:** `data/questions.xlsx` lub `data/questions.json` musi zostać opublikowany w repozytorium. Bez tego aplikacja nie ma pytań do pokazania. Publikacja 900 MB multimediów jest osobnym etapem; podstawowe pytania mogą działać bez mediów.
