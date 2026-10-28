@@ -1,43 +1,34 @@
-# Prawo Jazdy B — Szybka Powtórka
+# Prawo Jazdy B • Szybka Powtórka
 
-PWA do nauki pytań na prawo jazdy kategorii B. Działa na Macu i iPhonie, a po pierwszym uruchomieniu i imporcie danych także offline.
+Statyczna aplikacja PWA dla Maca i iPhone'a. Publikacja:
+https://ad2chacik.github.io/Prawo-jazdy/
 
-## GitHub Pages
+## Publikacja wspólnej bazy
 
-Repozytorium jest gotowe do publikacji bez procesu budowania. W GitHub:
+1. Prześlij `data/questions.json` **albo** `data/questions.xlsx` do tego repozytorium. Format JSON: tablica pytań lub obiekt `{"questions": [...]}`.
+2. Umieść pliki JPG/PNG/MP4 bezpośrednio w `media/`. Nazwy muszą odpowiadać kolumnie `Media` (najlepiej używaj małych liter). Jeśli pytanie wskazuje `xyz.wmv`, opublikuj `xyz.mp4`.
+3. Po wejściu na stronę nowy użytkownik automatycznie pobiera bazę. Film jest pobierany dopiero, gdy pojawia się w pytaniu. Mniejsze media (do 25 MiB) są zapisywane lokalnie po obejrzeniu.
+4. Własny postęp i historia błędów zapisują się osobno na każdym urządzeniu w IndexedDB. Nie są wysyłane do GitHub ani synchronizowane między urządzeniami.
 
-1. **Settings → Pages**
-2. **Build and deployment → Source: Deploy from a branch**
-3. Branch: **main**
-4. Folder: **/(root)**
-5. **Save**
+### Pola bazy
 
-Adres projektu będzie miał postać:
+`Numer pytania`, `Pytanie`, `Odpowiedź A`, `Odpowiedź B`, `Odpowiedź C`, `Poprawna odp`, `Media`, `Liczba punktów`, `Kategorie`.
 
-`https://<login>.github.io/<nazwa-repo>/`
+Import XLSX i ZIP działa offline dzięki lokalnej bibliotece JSZip.
 
-Wszystkie ścieżki aplikacji są względne, więc PWA działa również jako GitHub Pages project site w podfolderze repozytorium.
+### Ważne ograniczenia
 
-## iPhone
+- Automatyczne pobranie działa **tylko gdy użytkownik nie ma już lokalnej bazy**. Istniejące dane mają pierwszeństwo, co zabezpiecza zapisany postęp.
+- Offline: interfejs i pobrane pytania są przechowywane lokalnie. Filmy są pobierane na żądanie. Duże filmy nie są automatycznie przechowywane w IndexedDB i wymagają internetu, chyba że zostały wcześniej ręcznie zaimportowane.
+- GitHub Pages: zalecana maksymalna wielkość publikacji 1 GB i miękki limit transferu 100 GB/miesiąc. Wgrywanie przez stronę GitHub ogranicza pojedyncze pliki do 25 MiB.
+- Przed publikacją oficjalnych filmów i zdjęć sprawdź prawa do redystrybucji. Gov.pl wyraźnie informuje, że niektóre zasoby są własnością osób trzecich.
 
-1. Otwórz adres GitHub Pages w Safari.
-2. Udostępnij → **Dodaj do ekranu początkowego**.
-3. Uruchom aplikację z ikony.
-4. Zaimportuj bazę `.xlsx`/CSV/JSON oraz multimedia lub ZIP.
-5. W ustawieniach użyj **Zabezpiecz dane offline**.
-6. Przetestuj po wyłączeniu Wi‑Fi i danych komórkowych.
+Źródła: https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits , https://www.gov.pl/web/gov/prawa-autorskie , https://www.gov.pl/web/infrastruktura/prawo-jazdy
 
-Pytania, postęp i multimedia są zapisywane lokalnie w IndexedDB. Nie są publikowane w repozytorium ani wysyłane na GitHub.
+## Tryb offline
 
-## Obsługiwane dane
+Otwórz witrynę w Safari na iPhonie i wybierz **Udostępnij → Dodaj do ekranu początkowego**. Po pobraniu bazy przetestuj działanie przy wyłączonym internecie. Pamiętaj, że Safari może usunąć dane przy presji na pamięć; eksport postępu tworzy kopię zapasową.
 
-- pytania: `.xlsx`, CSV, JSON,
-- multimedia: JPG, PNG, GIF, WebP, MP4 i inne formaty odtwarzane przez przeglądarkę,
-- pakiety: ZIP z bazą i multimediami,
-- eksport/import postępu: JSON.
+## Konserwacja
 
-WMV nie jest obsługiwany przez Safari na iPhonie. Jeżeli baza wskazuje `plik.wmv`, aplikacja automatycznie próbuje znaleźć `plik.mp4`.
-
-## Offline
-
-Service Worker przechowuje interfejs aplikacji w cache, a baza i multimedia są przechowywane w IndexedDB. Plik `.nojekyll` wyłącza przetwarzanie Jekyll w GitHub Pages.
+Kod: `index.html`, `app.js`, `styles.css`, `sw.js`, `manifest.webmanifest`. Lokalny JSZip: `vendor/jszip.min.js`. Service Worker nie przechwytuje żądań HTTP Range ani /media/, aby nie psuć natywnego streamingu.
