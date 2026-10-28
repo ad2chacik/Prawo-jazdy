@@ -184,7 +184,7 @@ select {
   border: 1px solid var(--border);
   background: var(--surface-2);
   border-radius: 10px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 12px;
   cursor: pointer;
   font-size: 0.82rem;
