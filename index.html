@@ -20,7 +20,7 @@
       <div>
         <p class="eyebrow">Prawo jazdy • Kat. B</p>
         <h1>Szybka Powtórka</h1>
-        <p class="muted">Po pierwszym imporcie pytania, multimedia i postęp są przechowywane lokalnie w przeglądarce.</p>
+        <p class="muted">Pytania są pobierane automatycznie, gdy opublikowana baza jest dostępna. Postęp zapisuje się osobno na Twoim urządzeniu.</p>
       </div>
       <button id="install-btn" class="button secondary hidden" type="button">Zainstaluj aplikację</button>
     </section>
@@ -45,8 +45,8 @@
 
     <button id="start-btn" class="button primary start-button" type="button" disabled>Najpierw wczytaj bazę pytań</button>
 
-    <details class="panel" open>
-      <summary>Import bazy pytań</summary>
+    <details class="panel">
+      <summary>Ręczny import bazy pytań (opcjonalnie)</summary>
       <div class="panel-body">
         <p class="muted">Obsługiwane: Excel (.xlsx), CSV i JSON. Wszystkie te formaty są odczytywane lokalnie, bez wysyłania pliku do internetu.</p>
         <label class="file-button">
@@ -168,7 +168,7 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
   <script src="app.js" defer></script>
 </body>
 </html>
