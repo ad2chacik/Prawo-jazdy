@@ -149,9 +149,13 @@ select {
 }
 .storage-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: rgba(15,23,42,.55); border-radius: 10px; }
 .setup-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin: 18px auto 0; max-width: 640px; }
+.catalog-hint { text-align: center; margin: -6px 0 16px; line-height: 1.45; }
+.advanced-data { border-top: 1px solid var(--border); padding-top: 10px; }
+.advanced-data summary { color: var(--muted); font-size: .88rem; cursor: pointer; font-weight: 600; padding: 4px 0; }
+.advanced-data .row-actions { margin: 10px 0 4px; }
 
 .app-page {
-  width: min(860px, 100%);
+  width: min(1100px, 100%);
   min-height: 100dvh;
   padding-top: max(8px, env(safe-area-inset-top));
 }
@@ -194,7 +198,18 @@ select {
 .nav-btn.active { background: var(--primary); border-color: var(--primary); }
 .nav-btn.exam { border-color: rgba(245,158,11,.55); }
 .nav-btn.exam.active { background: #b45309; border-color: #f59e0b; }
-.icon-btn { flex: 0 0 44px; padding: 0; font-size: 1.25rem; }
+.settings-btn {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: .84rem;
+  font-weight: 750;
+  cursor: pointer;
+}
 
 .quiz-shell { padding-top: 12px; }
 .progress-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
@@ -211,25 +226,49 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
 
 .media-box {
   position: relative;
-  height: clamp(175px, 34dvh, 310px);
-  min-height: 160px;
   width: 100%;
-  background: #05080f;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  min-height: 0;
+  background: #000;
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  isolation: isolate;
   margin-bottom: 13px;
 }
-.media-el { width: 100%; height: 100%; object-fit: contain; }
-.media-message { color: var(--muted); text-align: center; font-size: .9rem; padding: 20px; line-height: 1.4; }
+/* Image, video and loading placeholder share exactly the same dimensions.
+   Contain introduces black side/top bars without cropping road signs. */
+.media-el {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  object-position: center center;
+  background: #000;
+}
+.media-message {
+  position: relative;
+  z-index: 1;
+  color: #cbd5e1;
+  text-align: center;
+  font-size: .92rem;
+  padding: 22px;
+  line-height: 1.5;
+  max-width: 36rem;
+}
 .media-action {
   position: absolute;
+  z-index: 3;
   right: 10px;
   top: 10px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,.22);
@@ -315,6 +354,38 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
 .result-fail { color: #fca5a5; font-size: clamp(1.6rem, 7vw, 2.4rem); font-weight: 900; }
 .result-score { font-size: 1.15rem; margin-top: 10px; }
 
+.app-dialog {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid rgba(148, 163, 184, .34);
+  border-radius: 18px;
+  padding: 0;
+  box-shadow: 0 28px 90px rgba(0,0,0,.55);
+}
+.app-dialog::backdrop { background: rgba(1, 5, 14, .78); }
+.welcome-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 40px);
+}
+.dialog-content { padding: clamp(20px, 4vw, 28px); }
+.dialog-overline { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: #93c5fd; font-weight: 800; margin: 0 0 8px; }
+.dialog-content h2 { font-size: 1.45rem; line-height: 1.2; margin: 0 0 16px; }
+.dialog-content p:not(.dialog-overline) { font-size: .94rem; line-height: 1.55; color: #d7e1ee; margin: 0 0 13px; }
+.dialog-content strong { color: #fff; }
+.dialog-close { width: 100%; margin-top: 9px; }
+.image-dialog {
+  width: min(1440px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  background: #000;
+  border-color: #334155;
+}
+.image-dialog[open] { display: block; }
+.image-dialog-inner { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.image-dialog-close { align-self: flex-end; flex: none; z-index: 1; min-height: 44px; }
+#image-dialog-img { display: block; width: 100%; height: 100%; min-height: 0; flex: 1; object-fit: contain; object-position: center; }
 .toast {
   position: fixed;
   z-index: 99;
@@ -344,18 +415,18 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
   .error-item { grid-template-columns: 104px minmax(0, 1fr); }
   .error-media { min-height: 92px; padding: 5px; }
   .app-page { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .ans-btn { padding-right: 14px; }
+  .settings-btn { padding: 0 10px; font-size: .77rem; }
   .kb-hint { display: none; }
 }
 
 @media (max-height: 690px) and (orientation: portrait) {
-  .media-box { height: 26dvh; min-height: 145px; }
   .question-text { min-height: 52px; padding-top: 7px; padding-bottom: 9px; }
   .ans-btn { min-height: 52px; padding-top: 10px; padding-bottom: 10px; }
 }
 
 @media (min-width: 900px) {
   .quiz-shell { padding-top: 16px; }
-  .media-box { height: 330px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
