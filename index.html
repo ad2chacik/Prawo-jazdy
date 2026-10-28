@@ -27,14 +27,14 @@
 
     <section class="status-grid" aria-label="Stan danych aplikacji">
       <article class="status-card">
-        <span class="status-label">Pytania</span>
+        <span class="status-label">Baza pytań</span>
         <strong id="question-count">0</strong>
         <span id="question-status" class="muted small">Brak bazy</span>
       </article>
       <article class="status-card">
-        <span class="status-label">Multimedia</span>
+        <span class="status-label">Multimedia offline</span>
         <strong id="media-count">0</strong>
-        <span id="media-status" class="muted small">Brak plików</span>
+        <span id="media-status" class="muted small">W sieci na żądanie</span>
       </article>
       <article class="status-card">
         <span class="status-label">Postęp</span>
@@ -43,27 +43,13 @@
       </article>
     </section>
 
-    <button id="start-btn" class="button primary start-button" type="button" disabled>Najpierw wczytaj bazę pytań</button>
-
-    <details class="panel">
-      <summary>Ręczny import bazy pytań (opcjonalnie)</summary>
-      <div class="panel-body">
-        <p class="muted">Obsługiwane: Excel (.xlsx), CSV i JSON. Wszystkie te formaty są odczytywane lokalnie, bez wysyłania pliku do internetu.</p>
-        <label class="file-button">
-          <span>Wybierz plik z pytaniami</span>
-          <input id="questions-file" type="file" accept=".xlsx,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json">
-        </label>
-        <div class="row-actions">
-          <button id="export-questions-btn" class="button secondary" type="button" disabled>Eksportuj bazę JSON</button>
-          <button id="clear-questions-btn" class="button danger-ghost" type="button" disabled>Usuń bazę</button>
-        </div>
-      </div>
-    </details>
+    <button id="start-btn" class="button primary start-button" type="button" disabled>Ładowanie bazy pytań…</button>
+    <p id="catalog-hint" class="catalog-hint muted small" aria-live="polite">Pytania są pobierane automatycznie. Nie musisz wskazywać pliku Excel.</p>
 
     <details class="panel">
       <summary>Import multimediów</summary>
       <div class="panel-body">
-        <p class="muted">Na iPhonie najpewniejszy jest wybór wielu plików lub ZIP. Na komputerze możesz wskazać cały folder.</p>
+        <p class="muted">Opcjonalnie: możesz zapisać zdjęcia i filmy na tym urządzeniu do pracy bez internetu. W zwykłym trybie są pobierane automatycznie podczas nauki.</p>
         <div class="import-grid">
           <label class="file-button">
             <span>Wybierz zdjęcia i filmy</span>
@@ -100,7 +86,15 @@
           <button id="export-progress-btn" class="button secondary" type="button">Eksportuj postęp</button>
           <label class="button secondary file-inline">Importuj postęp<input id="progress-file" type="file" accept=".json,application/json"></label>
           <button id="reset-progress-btn" class="button danger-ghost" type="button">Reset postępu</button>
+          <button id="help-btn" class="button secondary" type="button">Jak działa nauka</button>
         </div>
+        <details class="advanced-data">
+          <summary>Zarządzanie bazą pytań</summary>
+          <div class="row-actions">
+            <button id="export-questions-btn" class="button secondary small-button" type="button" disabled>Eksportuj bazę JSON</button>
+            <button id="clear-questions-btn" class="button danger-ghost small-button" type="button" disabled>Usuń lokalną bazę</button>
+          </div>
+        </details>
         <div class="storage-box">
           <span id="storage-status" class="muted small">Sprawdzanie pamięci…</span>
           <button id="persist-storage-btn" class="button secondary small-button" type="button">Zabezpiecz dane offline</button>
@@ -108,7 +102,7 @@
       </div>
     </details>
 
-    <p class="setup-note">Aplikacja działa najlepiej z HTTPS albo na localhost. Po instalacji na ekranie początkowym iPhone'a może działać offline.</p>
+    <p class="setup-note">Pytania i postęp zapisują się na urządzeniu. Multimedia online wymagają połączenia, dopóki nie zapiszesz ich lokalnie.</p>
   </main>
 
   <main id="app-screen" class="page app-page hidden">
@@ -120,7 +114,7 @@
         <button class="nav-btn" data-tab="lista_bledow" type="button">Historia</button>
         <button class="nav-btn exam" data-tab="egzamin" type="button" title="Tryb ćwiczeniowy, bez limitu czasu">Egzamin próbny</button>
       </nav>
-      <button id="settings-btn" class="icon-btn" type="button" aria-label="Dane i ustawienia">⚙︎</button>
+      <button id="settings-btn" class="settings-btn" type="button" aria-label="Przejdź do ustawień">Ustawienia</button>
     </header>
 
     <section id="quiz-container" class="quiz-shell">
@@ -130,11 +124,12 @@
       </div>
       <div id="progress-exam" class="exam-progress hidden" aria-label="Postęp egzaminu"></div>
 
-      <div id="media-box" class="media-box">
-        <video id="media-video" class="media-el hidden" preload="metadata" muted playsinline></video>
-        <img id="media-img" class="media-el hidden" alt="Multimedia do pytania">
+      <div id="media-box" class="media-box" aria-label="Multimedia pytania">
+        <video id="media-video" class="media-el hidden" preload="metadata" muted playsinline controls></video>
+        <img id="media-img" class="media-el hidden" alt="Zdjęcie do pytania" decoding="async">
         <div id="media-text" class="media-message">Pytanie bez multimediów</div>
-        <button id="replay-btn" class="media-action hidden" type="button">↻ Odtwórz</button>
+        <button id="replay-btn" class="media-action hidden" type="button">Odtwórz ponownie</button>
+        <button id="image-expand-btn" class="media-action hidden" type="button" aria-label="Powiększ zdjęcie">Powiększ zdjęcie</button>
       </div>
 
       <div class="question-meta">
@@ -167,6 +162,24 @@
       <div id="exam-errors-list"></div>
     </section>
   </main>
+
+  <dialog id="welcome-dialog" class="app-dialog welcome-dialog" aria-labelledby="welcome-title">
+    <div class="dialog-content">
+      <p class="dialog-overline">Krótka instrukcja</p>
+      <h2 id="welcome-title">Warto wiedzieć</h2>
+      <p><strong>Dobra odpowiedź</strong> od razu przenosi do kolejnego pytania.</p>
+      <p><strong>Błędna odpowiedź</strong> pokazuje poprawną. Naciśnij „Dalej”, aby kontynuować.</p>
+      <p>Zdjęcia można powiększać, a filmy odtwarzać ponownie. <strong>Postęp zapisuje się tylko na tym urządzeniu</strong> — jego kopię możesz wyeksportować w ustawieniach.</p>
+      <button id="welcome-close-btn" class="button primary dialog-close" type="button">Rozumiem</button>
+    </div>
+  </dialog>
+
+  <dialog id="image-dialog" class="app-dialog image-dialog" aria-label="Powiększone zdjęcie do pytania">
+    <div class="image-dialog-inner">
+      <button id="image-close-btn" class="button secondary image-dialog-close" type="button">Zamknij zdjęcie</button>
+      <img id="image-dialog-img" alt="Powiększone zdjęcie do pytania">
+    </div>
+  </dialog>
 
   <script src="vendor/jszip.min.js"></script>
   <script src="app.js" defer></script>
