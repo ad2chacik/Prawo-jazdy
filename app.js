@@ -761,11 +761,13 @@ async function importPackage(file) {
 }
 
 // Cap startup network waits so users always reach the manual-import screen.
-async function fetchWithTimeout(url, timeoutMs = 8000) {
+async function fetchWithTimeout(url, timeoutMs = 8000, readBody = response => response) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { cache: 'no-cache', signal: controller.signal });
+    const response = await fetch(url, { cache: 'no-cache', signal: controller.signal });
+    // Read the response while the deadline is active, not just its headers.
+    return await readBody(response);
   } finally {
     clearTimeout(timer);
   }
@@ -773,9 +775,9 @@ async function fetchWithTimeout(url, timeoutMs = 8000) {
 
 async function readPublishedCatalog() {
   try {
-    const response = await fetchWithTimeout('./data/catalog.json', 5000);
-    if (!response.ok) return null;
-    const manifest = await response.json();
+    const manifest = await fetchWithTimeout('./data/catalog.json', 5000,
+      response => response.ok ? response.json() : null);
+    if (!manifest) return null;
     if (typeof manifest?.version !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(manifest.version)) {
       console.warn('data/catalog.json: brak poprawnego pola version.');
       return null;
@@ -818,20 +820,21 @@ async function importPublishedQuestions() {
   if (!isUpdate) setImportProgress('Pobieranie opublikowanej bazy pytań…');
   for (const path of PUBLISHED_QUESTION_PATHS) {
     try {
-      const response = await fetchWithTimeout(path, 12000);
-      if (!response.ok) continue;
-      const declaredSize = Number(response.headers.get('content-length') || 0);
-      if (declaredSize > 25 * 1024 * 1024) throw new Error('Opublikowana baza jest zbyt duża.');
-      let parsed;
-      if (path.endsWith('.json')) {
-        const raw = await response.text();
-        if (new Blob([raw]).size > 25 * 1024 * 1024) throw new Error('Opublikowana baza JSON przekracza 25 MiB.');
-        parsed = JSON.parse(raw);
-      } else {
+      const payload = await fetchWithTimeout(path, 12000, async response => {
+        if (!response.ok) return null;
+        const declaredSize = Number(response.headers.get('content-length') || 0);
+        if (declaredSize > 25 * 1024 * 1024) throw new Error('Opublikowana baza jest zbyt duża.');
+        if (path.endsWith('.json')) {
+          const raw = await response.text();
+          if (new Blob([raw]).size > 25 * 1024 * 1024) throw new Error('Opublikowana baza JSON przekracza 25 MiB.');
+          return JSON.parse(raw);
+        }
         const buffer = await response.arrayBuffer();
         if (buffer.byteLength > 25 * 1024 * 1024) throw new Error('Opublikowany XLSX przekracza 25 MiB.');
-        parsed = await parseXLSXArrayBuffer(buffer);
-      }
+        return buffer;
+      });
+      if (!payload) continue;
+      const parsed = path.endsWith('.json') ? payload : await parseXLSXArrayBuffer(payload);
       const clean = buildQuestionDatabase(Array.isArray(parsed) ? parsed : parsed.questions);
       if (isUpdate && clean.length < questions.length * 0.8) {
         throw new Error('Aktualizacja zawiera znacznie mniej pytań. Zachowano starszą bazę.');
