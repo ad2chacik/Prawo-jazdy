@@ -40,6 +40,11 @@ let historyUrls = new Set();
 let installPrompt = null;
 let publishedMediaMapPromise = null;
 
+// Per-tab, in-memory history. Going back is a read-only review and must
+// never undo or re-count an answer already saved in IndexedDB.
+let studyHistory = { podstawowe: [], specjalistyczne: [], bledy: [] };
+let studyReview = null;
+
 let examQuestions = [];
 let examAnswers = [];
 let examIndex = 0;
@@ -1079,6 +1084,8 @@ function renderAnswers(question, isExam) {
   const box = $('answers-box');
   box.replaceChildren();
   const category = question['PrawdziwaKategoria'];
+  box.classList.toggle('answers-basic', category === 'PODSTAWOWY');
+  box.classList.toggle('answers-special', category !== 'PODSTAWOWY');
 
   if (category === 'PODSTAWOWY') {
     box.appendChild(createAnswerButton('T', 'TAK', 1, 'basic'));
@@ -1092,6 +1099,85 @@ function renderAnswers(question, isExam) {
   }
 
   box.dataset.mode = isExam ? 'exam' : 'study';
+}
+
+function recordStudyAnswer(question, choice, tab) {
+  if (!studyHistory[tab]) return;
+  studyHistory[tab].push({ question, choice });
+  // Keep a bounded session history; learning progress itself remains in IndexedDB.
+  if (studyHistory[tab].length > 200) studyHistory[tab].shift();
+}
+
+function updateQuizActions() {
+  const back = $('back-btn');
+  const next = $('continue-btn');
+  const reviewing = studyReview && studyReview.tab === currentTab;
+  const history = studyHistory[currentTab] || [];
+  const allowed = currentTab !== 'egzamin' && currentTab !== 'lista_bledow';
+  back.disabled = !allowed || answering || waitingForContinue ||
+    (reviewing ? studyReview.index <= 0 : history.length === 0);
+  const showNext = Boolean(reviewing || waitingForContinue);
+  next.classList.toggle('is-inactive', !showNext);
+  next.disabled = !showNext || answering;
+  if (reviewing) {
+    next.textContent = studyReview.index === history.length - 1
+      ? 'Wróć do bieżącego' : 'Następne';
+  } else {
+    next.textContent = 'Dalej';
+  }
+}
+
+function showStudyReview() {
+  if (!studyReview || currentTab !== studyReview.tab) return;
+  const entry = studyHistory[currentTab]?.[studyReview.index];
+  if (!entry) return;
+  const question = entry.question;
+  $('review-label').classList.remove('hidden');
+  $('points-badge').classList.toggle('hidden', question['Liczba punktów'] !== 3);
+  if (question['Liczba punktów'] === 3) {
+    $('points-badge').textContent = '! Ważne';
+  }
+  $('q-text').textContent = question['Pytanie'];
+  renderAnswers(question, false);
+  document.querySelectorAll('#answers-box .ans-btn').forEach(button => {
+    button.disabled = true;
+    if (button.dataset.value === question['Poprawna odp']) button.classList.add('correct');
+    if (button.dataset.value === entry.choice && entry.choice !== question['Poprawna odp']) {
+      button.classList.add('wrong');
+    }
+  });
+  setMedia(question['Media']);
+  updateQuizActions();
+}
+
+function showPreviousQuestion() {
+  if (currentTab === 'egzamin' || currentTab === 'lista_bledow' ||
+      waitingForContinue || answering) return;
+  const history = studyHistory[currentTab] || [];
+  if (!history.length) return;
+  if (studyReview && studyReview.tab === currentTab) {
+    if (studyReview.index <= 0) return;
+    studyReview.index--;
+  } else {
+    studyReview = { tab: currentTab, index: history.length - 1 };
+  }
+  showStudyReview();
+}
+
+function showNextOrContinue() {
+  if (studyReview && studyReview.tab === currentTab) {
+    const history = studyHistory[currentTab] || [];
+    if (studyReview.index < history.length - 1) {
+      studyReview.index++;
+      showStudyReview();
+    } else {
+      studyReview = null;
+      $('review-label').classList.add('hidden');
+      showQuestion();
+    }
+    return;
+  }
+  continueAfterError();
 }
 
 function setActiveNav(tab) {
@@ -1121,8 +1207,10 @@ async function switchTab(tab) {
   cleanupMediaUrl();
   cleanupHistoryMedia();
   waitingForContinue = false;
-  $('continue-btn').classList.add('hidden');
+  studyReview = null;
+  $('review-label').classList.add('hidden');
   currentTab = tab;
+  updateQuizActions();
   setActiveNav(tab);
   hideAllMainViews();
 
@@ -1154,10 +1242,12 @@ async function switchTab(tab) {
 }
 
 function showCompletion() {
+  studyReview = null;
+  $('review-label').classList.add('hidden');
   resetMediaBox('Gotowe');
   $('answers-box').replaceChildren();
   $('points-badge').classList.add('hidden');
-  $('continue-btn').classList.add('hidden');
+  updateQuizActions();
 
   if (currentTab === 'bledy') {
     $('q-text').textContent = 'Nie masz obecnie żadnych błędów do poprawy.';
@@ -1213,6 +1303,8 @@ function updateStudyProgress(question, index, list) {
 }
 
 function showQuestion() {
+  studyReview = null;
+  $('review-label').classList.add('hidden');
   const isExam = currentTab === 'egzamin';
   const list = isExam ? examQuestions : decks[currentTab];
   const index = isExam ? examIndex : indices[currentTab];
@@ -1236,17 +1328,17 @@ function showQuestion() {
     $('points-badge').textContent = `${question['Liczba punktów']} pkt`;
     $('points-badge').classList.remove('hidden');
   } else if (question['Liczba punktów'] === 3) {
-    $('points-badge').textContent = '3 pkt • ważne';
+    $('points-badge').textContent = '! Ważne';
     $('points-badge').classList.remove('hidden');
   } else {
     $('points-badge').classList.add('hidden');
   }
 
   $('q-text').textContent = question['Pytanie'];
-  $('continue-btn').classList.add('hidden');
   waitingForContinue = false;
   renderAnswers(question, isExam);
   setMedia(question['Media']);
+  updateQuizActions();
 
   if (!isExam) {
     progress.lastQuestionByTab[currentTab] = question._id;
@@ -1264,7 +1356,7 @@ function markCorrectness(correct, selectedButton) {
 
 async function handleAnswer(choice, button, event) {
   event?.stopPropagation();
-  if (waitingForContinue || answering) return;
+  if (waitingForContinue || answering || studyReview) return;
   answering = true;
   try {
 
@@ -1306,6 +1398,7 @@ async function handleAnswer(choice, button, event) {
   }
   await saveProgress();
   if (currentTab !== answerTab) return;
+  recordStudyAnswer(question, choice, answerTab);
 
   if (isCorrect) {
     if (currentTab === 'bledy') {
@@ -1317,15 +1410,16 @@ async function handleAnswer(choice, button, event) {
   } else {
     markCorrectness(correct, button);
     waitingForContinue = true;
-    $('continue-btn').classList.remove('hidden');
   }
-  } finally { answering = false; }
+  } finally {
+    answering = false;
+    updateQuizActions();
+  }
 }
 
 function continueAfterError() {
   if (!waitingForContinue) return;
   waitingForContinue = false;
-  $('continue-btn').classList.add('hidden');
   indices[currentTab]++;
   showQuestion();
 }
@@ -1645,7 +1739,8 @@ function bindEvents() {
   $('image-dialog').addEventListener('close', () =>
     $('image-dialog-img').removeAttribute('src'));
   document.querySelectorAll('.nav-btn').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
-  $('continue-btn').addEventListener('click', continueAfterError);
+  $('continue-btn').addEventListener('click', showNextOrContinue);
+  $('back-btn').addEventListener('click', showPreviousQuestion);
 
   $('replay-btn').addEventListener('click', async event => {
     event.stopPropagation();
@@ -1725,8 +1820,13 @@ function bindEvents() {
     if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target;
     if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
+    if (studyReview) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); showPreviousQuestion(); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); showNextOrContinue(); }
+      return;
+    }
     if (waitingForContinue) {
-      if (event.key === 'Enter' || event.key === ' ') {
+      if ((event.key === 'Enter' || event.key === ' ') && !target?.closest?.('button')) {
         event.preventDefault();
         continueAfterError();
       }
