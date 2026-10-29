@@ -367,6 +367,10 @@ for repo_dir in "$APP_DIR" "$MEDIA_DIR"; do
   git -C "$repo_dir" config core.compression 0
 done
 
+# Sparse checkout leaves old media entries in the index even when their files
+# are absent from the working tree. Reset that managed subtree explicitly so a
+# resumed split cannot accumulate duplicates from an earlier plan.
+git -C "$MEDIA_DIR" rm -r --cached --ignore-unmatch --sparse media >/dev/null
 git -C "$MEDIA_DIR" add --sparse .prawko-media-repo .nojekyll README.md index.html media media-manifest.json
 if ! git -C "$MEDIA_DIR" diff --cached --quiet; then
   git -C "$MEDIA_DIR" commit -q -m "Publish second half of question media"
