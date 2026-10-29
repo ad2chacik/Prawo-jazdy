@@ -114,3 +114,11 @@ a nie pełna symulacja egzaminu państwowego. Nie sugerować inaczej w interfejs
 - Pierwsze uruchomienie pokazuje krótką instrukcję; po zamknięciu ustawienie `welcome_seen_v1` zapisuje się w IndexedDB. Pomoc można otworzyć ponownie z ustawień.
 - Ręczny przycisk wyboru Excela usunięto. Baza jest wczytywana z `data/questions.json` lub `data/questions.xlsx` automatycznie, a import pakietu ZIP zostaje jako awaryjna funkcja lokalna.
 - Publiczna baza musi zostać fizycznie opublikowana; zmiana samego interfejsu tego nie zastępuje.
+
+## Układ pojedynczego pytania — wariant kompaktowy
+
+Widok quizu wykorzystuje wysokość `100dvh` w Safari i układ CSS Grid. Najpierw ustalana jest wysokość menu, paska postępu, tekstu pytania, odpowiedzi i dolnych przycisków; pozostałe miejsce otrzymuje ramka multimediów. Obraz i film używają `object-fit: contain`, nie są kadrowane. Przy bardzo małym oknie lub wyjątkowo długiej treści dopuszczone jest przewijanie samego quizu, aby nie ucinać odpowiedzi.
+
+Pytania podstawowe mają TAK/NIE w dwóch kolumnach. Specjalistyczne mają odpowiedzi A/B/C jedna pod drugą. Znacznik `! Ważne` występuje dla pytań za 3 punkty, bez redundantnego napisu `Kategoria B`.
+
+Przycisk `Poprzednie` dotyczy **tylko nauki**: cofa do pytania już ocenionego w bieżącej sesji i pokazuje je w trybie odczytu. Nie zmienia ani nie przelicza postępu, a `Następne/Wróć do bieżącego` wraca do aktualnego pytania. Egzamin próbny nie pozwala na cofanie. Historia nawigacji jest sesyjna (nie jest zapisywana wraz z postępem).

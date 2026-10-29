@@ -178,6 +178,33 @@ async function main() {
   assert.match(styles, /aspect-ratio:\s*16\s*\/\s*10/);
   assert.match(styles, /object-fit:\s*contain/);
   assert.match(styles, /background:\s*#000/);
+  assert.match(styles, /height:\s*100dvh/);
+  assert.match(styles, /grid-template-rows:\s*auto\s+minmax\(/);
+  assert.match(styles, /\.answers-grid\.answers-basic\s*\{\s*grid-template-columns:\s*repeat\(2/);
+  assert.match(styles, /\.continue-btn\.is-inactive/);
+  for (const id of ['back-btn', 'continue-btn', 'review-label', 'points-badge']) {
+    assert.ok(html.includes('id="' + id + '"'), 'Missing navigation ID: ' + id);
+  }
+  assert.ok(!html.includes('Kategoria B</span>'), 'Redundant category B badge returned');
+
+  // Review previous answers without mutating stored progress or allowing a retry.
+  run("currentTab = 'podstawowe'; answering = false; waitingForContinue = false; studyReview = null; studyHistory.podstawowe = []");
+  run("showStudyReview = () => {}; showQuestion = () => {}");
+  run("recordStudyAnswer({ _id:'first', 'Poprawna odp':'T' }, 'T', 'podstawowe')");
+  run("recordStudyAnswer({ _id:'second', 'Poprawna odp':'N' }, 'T', 'podstawowe')");
+  run("progress.correct = ['first']; progress.errors = ['second']");
+  run("showPreviousQuestion()");
+  assert.equal(run("studyReview.index"), 1);
+  run("showPreviousQuestion()");
+  assert.equal(run("studyReview.index"), 0);
+  run("showNextOrContinue()");
+  assert.equal(run("studyReview.index"), 1);
+  run("showNextOrContinue()");
+  assert.equal(run("studyReview"), null);
+  assert.deepEqual(Array.from(run("progress.correct")), ['first']);
+  assert.deepEqual(Array.from(run("progress.errors")), ['second']);
+  run("currentTab = 'egzamin'; studyReview = null; showPreviousQuestion()");
+  assert.equal(run("studyReview"), null);
   assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html), 'UI contains emoji');
   assert.match(html, /playsinline/);
   assert.match(html, /Dobra odpowiedź/);
