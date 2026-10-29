@@ -489,6 +489,9 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; 
   color: #cbd5e1;
   font-size: .78rem;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .question-text {
   min-height: 0;
