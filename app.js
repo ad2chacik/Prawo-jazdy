@@ -6,6 +6,7 @@ const MEDIA_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', '
 const PUBLISHED_QUESTION_PATHS = ['./data/questions.json', './data/questions.xlsx'];
 const PUBLISHED_MEDIA_DIR = './media/';
 const PUBLISHED_MEDIA_MAP_PATH = './data/media-map.json';
+const MEDIA_PRELOAD_AHEAD = 3;
 let answering = false;
 let tabSwitchSequence = 0;
 let historyGeneration = 0;
@@ -26,7 +27,6 @@ const DEFAULT_SETTINGS = () => ({
 
 let db;
 let questions = [];
-let questionMap = new Map();
 let progress = DEFAULT_PROGRESS();
 let settings = DEFAULT_SETTINGS();
 let decks = { podstawowe: [], specjalistyczne: [], bledy: [] };
@@ -37,11 +37,12 @@ let mediaLoadToken = 0;
 let currentMediaUrl = null;
 let historyObserver = null;
 let historyUrls = new Set();
+let historyMediaLoadSequence = 0;
 let installPrompt = null;
 let publishedMediaMapPromise = null;
-let nextMediaPreload = null;
-let nextMediaPreloadTimer = null;
-let nextMediaPreloadToken = 0;
+let mediaPreloads = new Map();
+let mediaPreloadTimer = null;
+let mediaPreloadGeneration = 0;
 let questionRenderSequence = 0;
 
 // Per-tab, in-memory history. Going back is a read-only review and must
@@ -159,6 +160,16 @@ async function countMedia() {
 async function getMedia(name) {
   const tx = db.transaction('media', 'readonly');
   return requestToPromise(tx.objectStore('media').get(normalizeFileName(name)));
+}
+
+async function hasMedia(name) {
+  const tx = db.transaction('media', 'readonly');
+  const store = tx.objectStore('media');
+  const key = normalizeFileName(name);
+  if (typeof store.getKey === 'function') {
+    return (await requestToPromise(store.getKey(key))) !== undefined;
+  }
+  return Boolean(await requestToPromise(store.get(key)));
 }
 
 async function clearMedia() {
@@ -347,7 +358,6 @@ function moveResumeQuestionToFront(deck, tab) {
 }
 
 function prepareDecks() {
-  questionMap = new Map(questions.map(q => [q._id, q]));
   const correct = new Set(progress.correct);
   const errors = new Set(progress.errors);
 
@@ -955,65 +965,125 @@ async function findMediaAsset(originalName) {
   return null;
 }
 
-function cancelNextMediaPreload() {
-  nextMediaPreloadToken++;
-  if (nextMediaPreloadTimer) clearTimeout(nextMediaPreloadTimer);
-  nextMediaPreloadTimer = null;
-  const element = nextMediaPreload?.element;
-  if (element) {
-    if (element.tagName === 'VIDEO') element.pause();
-    element.removeAttribute('src');
-    if (element.tagName === 'VIDEO') element.load();
-  }
-  nextMediaPreload = null;
-}
+async function findMediaPreloadAsset(originalName) {
+  const original = normalizeFileName(originalName);
+  if (!original) return null;
+  const candidates = original.endsWith('.wmv')
+    ? [original.replace(/\.wmv$/i, '.mp4')] : [original];
 
-function nextQuestionInList(list, index, isExam) {
-  if (!Array.isArray(list) || !list.length) return null;
-  if (index + 1 < list.length) return list[index + 1];
-  if (!isExam && currentTab === 'bledy' && list.length > 1) return list[0];
+  // Do not read large local Blobs merely to warm a network cache. IndexedDB
+  // media are already local and are fast enough to read when displayed.
+  for (const name of candidates) {
+    try {
+      if (await hasMedia(name)) return null;
+    } catch (error) {
+      console.warn('Nie udało się sprawdzić lokalnych multimediów:', error);
+    }
+  }
+
+  const mediaMap = await loadPublishedMediaMap();
+  for (const name of candidates) {
+    const url = publishedMediaURL(name, mediaMap);
+    if (url) return { name, url, type: mimeFromExtension(extensionOf(name)) };
+  }
   return null;
 }
 
-async function preloadQuestionMedia(question, token) {
-  const name = String(question?.Media || '').trim();
-  if (!name || name.toLowerCase() === 'nan' || globalThis.navigator?.connection?.saveData) return;
-  try {
-    const asset = await findMediaAsset(name);
-    if (token !== nextMediaPreloadToken || !asset?.url || asset.blob) return;
-    const ext = extensionOf(asset.name);
-    const isImage = (asset.type || '').startsWith('image/') ||
-      ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext);
-    const element = document.createElement(isImage ? 'img' : 'video');
-    if (isImage) {
-      element.decoding = 'async';
-      element.fetchPriority = 'low';
-    } else {
-      element.preload = 'auto';
-      element.muted = true;
-      element.playsInline = true;
+function releaseMediaPreload(preload) {
+  const element = preload?.element;
+  if (!element) return;
+  element.onload = null;
+  element.onerror = null;
+  if (element.tagName === 'VIDEO') element.pause();
+  element.removeAttribute('src');
+  if (element.tagName === 'VIDEO') element.load();
+}
+
+function cancelMediaPreloads() {
+  mediaPreloadGeneration++;
+  if (mediaPreloadTimer) clearTimeout(mediaPreloadTimer);
+  mediaPreloadTimer = null;
+  mediaPreloads.forEach(releaseMediaPreload);
+  mediaPreloads.clear();
+}
+
+function questionsAheadInList(list, index, isExam, count = MEDIA_PRELOAD_AHEAD) {
+  if (!Array.isArray(list) || !list.length || count < 1) return [];
+  const questionsAhead = [];
+  const limit = !isExam && currentTab === 'bledy'
+    ? Math.min(count, list.length - 1) : count;
+  for (let offset = 1; offset <= limit; offset++) {
+    let nextIndex = index + offset;
+    if (nextIndex >= list.length) {
+      if (isExam || currentTab !== 'bledy' || list.length <= 1) break;
+      nextIndex %= list.length;
     }
-    element.src = asset.url;
-    if (!isImage) element.load();
-    if (token !== nextMediaPreloadToken) {
-      element.removeAttribute('src');
-      if (!isImage) element.load();
+    questionsAhead.push(list[nextIndex]);
+  }
+  return questionsAhead;
+}
+
+function createMediaPreload(asset) {
+  const ext = extensionOf(asset.name);
+  const isImage = (asset.type || '').startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext);
+  const element = document.createElement(isImage ? 'img' : 'video');
+  if (isImage) {
+    element.decoding = 'async';
+    element.fetchPriority = 'low';
+  } else {
+    element.preload = 'auto';
+    element.muted = true;
+    element.playsInline = true;
+  }
+  element.src = asset.url;
+  if (!isImage) element.load();
+  return { name: asset.name, element };
+}
+
+async function reconcileMediaPreloads(questionsAhead, generation) {
+  if (globalThis.navigator?.connection?.saveData) questionsAhead = [];
+  const assets = await Promise.all(questionsAhead.map(async question => {
+    const name = String(question?.Media || '').trim();
+    if (!name || name.toLowerCase() === 'nan') return null;
+    try {
+      return await findMediaPreloadAsset(name);
+    } catch (error) {
+      console.warn('Nie udało się przygotować multimediów w buforze:', error);
+      return null;
+    }
+  }));
+  if (generation !== mediaPreloadGeneration) return;
+
+  const desired = new Map();
+  for (const asset of assets) {
+    if (asset && !desired.has(asset.url)) desired.set(asset.url, asset);
+  }
+  for (const [url, preload] of mediaPreloads) {
+    if (desired.has(url)) continue;
+    mediaPreloads.delete(url);
+    releaseMediaPreload(preload);
+  }
+  for (const [url, asset] of desired) {
+    if (mediaPreloads.has(url)) continue;
+    const preload = createMediaPreload(asset);
+    if (generation !== mediaPreloadGeneration) {
+      releaseMediaPreload(preload);
       return;
     }
-    nextMediaPreload = { name: asset.name, element };
-  } catch (error) {
-    console.warn('Nie udało się wstępnie pobrać kolejnego pliku multimedialnego:', error);
+    mediaPreloads.set(url, preload);
   }
 }
 
-function scheduleNextMediaPreload(list, index, isExam) {
-  cancelNextMediaPreload();
-  const nextQuestion = nextQuestionInList(list, index, isExam);
-  if (!nextQuestion) return;
-  const token = nextMediaPreloadToken;
-  nextMediaPreloadTimer = setTimeout(() => {
-    nextMediaPreloadTimer = null;
-    preloadQuestionMedia(nextQuestion, token);
+function scheduleMediaPreloads(list, index, isExam) {
+  if (mediaPreloadTimer) clearTimeout(mediaPreloadTimer);
+  const generation = ++mediaPreloadGeneration;
+  const questionsAhead = questionsAheadInList(list, index, isExam);
+  mediaPreloadTimer = setTimeout(() => {
+    mediaPreloadTimer = null;
+    reconcileMediaPreloads(questionsAhead, generation).catch(error => {
+      console.warn('Nie udało się uzupełnić bufora multimediów:', error);
+    });
   }, 0);
 }
 
@@ -1263,6 +1333,12 @@ function cleanupHistoryMedia() {
   historyGeneration++;
   historyObserver?.disconnect();
   historyObserver = null;
+  for (const id of ['history-list', 'exam-errors-list']) {
+    const container = $(id);
+    if (!container?.querySelectorAll) continue;
+    container.querySelectorAll('.error-media').forEach(media => unloadCardMedia(media));
+    container.replaceChildren();
+  }
   historyUrls.forEach(url => URL.revokeObjectURL(url));
   historyUrls.clear();
 }
@@ -1270,7 +1346,7 @@ function cleanupHistoryMedia() {
 async function switchTab(tab) {
   const switchId = ++tabSwitchSequence;
   questionRenderSequence++;
-  cancelNextMediaPreload();
+  cancelMediaPreloads();
   mediaLoadToken++;
   cleanupMediaUrl();
   cleanupHistoryMedia();
@@ -1311,7 +1387,7 @@ async function switchTab(tab) {
 
 function showCompletion() {
   questionRenderSequence++;
-  cancelNextMediaPreload();
+  cancelMediaPreloads();
   studyReview = null;
   $('review-label').classList.add('hidden');
   resetMediaBox('Gotowe');
@@ -1410,7 +1486,7 @@ function showQuestion() {
   renderAnswers(question, isExam);
   setMedia(question['Media']).finally(() => {
     if (renderSequence === questionRenderSequence) {
-      scheduleNextMediaPreload(list, index, isExam);
+      scheduleMediaPreloads(list, index, isExam);
     }
   });
   updateQuizActions();
@@ -1577,7 +1653,7 @@ async function finishExam() {
   prepareDecks();
   if (currentTab !== 'egzamin') return;
   questionRenderSequence++;
-  cancelNextMediaPreload();
+  cancelMediaPreloads();
   mediaLoadToken++;
   cleanupMediaUrl();
 
@@ -1600,12 +1676,6 @@ async function finishExam() {
   }
 }
 
-function correctAnswerText(question) {
-  const correct = question['Poprawna odp'];
-  if (question['PrawdziwaKategoria'] === 'PODSTAWOWY') return correct === 'T' ? 'TAK' : 'NIE';
-  return `${correct}: ${question[`Odpowiedź ${correct}`] || ''}`.trim();
-}
-
 function setupLazyMediaObserver() {
   historyObserver?.disconnect();
   if (typeof IntersectionObserver !== 'function') {
@@ -1614,35 +1684,83 @@ function setupLazyMediaObserver() {
   }
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
-      if (!entry.isIntersecting || observer !== historyObserver) return;
-      observer.unobserve(entry.target);
-      loadCardMedia(entry.target, entry.target.dataset.mediaName).catch(console.error);
+      if (observer !== historyObserver) return;
+      if (entry.isIntersecting) {
+        if (!entry.target.dataset.mediaState) {
+          loadCardMedia(entry.target, entry.target.dataset.mediaName).catch(console.error);
+        }
+      } else if (['loading', 'loaded'].includes(entry.target.dataset.mediaState)) {
+        unloadCardMedia(entry.target);
+      }
     });
-  }, { rootMargin: '220px 0px' });
+  }, { rootMargin: '600px 0px' });
   historyObserver = observer;
+}
+
+function unloadCardMedia(container) {
+  container.dataset.mediaLoadToken = String(++historyMediaLoadSequence);
+  const video = container.querySelector('video');
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+  container.querySelector('img')?.removeAttribute('src');
+  const objectUrl = container.dataset.objectUrl;
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl);
+    historyUrls.delete(objectUrl);
+    delete container.dataset.objectUrl;
+  }
+  delete container.dataset.mediaState;
+  container.replaceChildren();
+  container.textContent = container.dataset.mediaName ? 'Ładowanie…' : 'Bez multimediów';
+}
+
+function showCardMediaError(container, originalName, token) {
+  if (container.dataset.mediaLoadToken !== token) return;
+  unloadCardMedia(container);
+  container.dataset.mediaState = 'error';
+  container.textContent = 'Brak: ' + originalName;
 }
 
 async function loadCardMedia(container, originalName) {
   const generation = historyGeneration;
+  const token = String(++historyMediaLoadSequence);
+  container.dataset.mediaLoadToken = token;
+  container.dataset.mediaState = 'loading';
   if (!originalName) {
+    container.dataset.mediaState = 'loaded';
     container.textContent = 'Bez multimediów';
     return;
   }
-  const asset = await findMediaAsset(originalName);
-  if (generation !== historyGeneration || !container.isConnected) return;
+  let asset;
+  try {
+    asset = await findMediaAsset(originalName);
+  } catch (error) {
+    console.warn('Nie udało się otworzyć multimediów w historii:', error);
+    showCardMediaError(container, originalName, token);
+    return;
+  }
+  if (generation !== historyGeneration || !container.isConnected ||
+      container.dataset.mediaLoadToken !== token) return;
   if (!asset) {
-    container.textContent = 'Brak: ' + originalName;
+    showCardMediaError(container, originalName, token);
     return;
   }
   const ext = extensionOf(asset.name);
   const url = asset.blob ? URL.createObjectURL(asset.blob) : asset.url;
-  if (asset.blob) historyUrls.add(url);
+  if (asset.blob) {
+    historyUrls.add(url);
+    container.dataset.objectUrl = url;
+  }
   container.replaceChildren();
+  container.dataset.mediaState = 'loaded';
   if ((asset.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext)) {
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
-    img.onerror = () => { if (generation === historyGeneration) container.textContent = 'Brak: ' + originalName; };
+    img.onerror = () => showCardMediaError(container, originalName, token);
     container.appendChild(img);
   } else {
     const video = document.createElement('video');
@@ -1651,7 +1769,7 @@ async function loadCardMedia(container, originalName) {
     video.muted = true;
     video.playsInline = true;
     video.controls = true;
-    video.onerror = () => { if (generation === historyGeneration) container.textContent = 'Brak: ' + originalName; };
+    video.onerror = () => showCardMediaError(container, originalName, token);
     video.addEventListener('play', () => { video.playbackRate = settings.playbackRate; });
     container.appendChild(video);
   }
@@ -1735,6 +1853,8 @@ function enterApp(tab = progress.lastTab || 'podstawowe') {
 
 async function enterSetup() {
   tabSwitchSequence++;
+  questionRenderSequence++;
+  cancelMediaPreloads();
   mediaLoadToken++;
   cleanupMediaUrl();
   cleanupHistoryMedia();
@@ -1873,7 +1993,6 @@ function bindEvents() {
   $('clear-questions-btn').addEventListener('click', async () => {
     if (!confirm('Usunąć lokalną bazę pytań? Multimedia zostaną zachowane.')) return;
     questions = [];
-    questionMap.clear();
     progress = DEFAULT_PROGRESS();
     await clearStoredQuestions();
     await saveProgress();

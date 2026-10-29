@@ -73,22 +73,42 @@ async function main() {
   const mapped = await run("findMediaAsset('movie.mp4')");
   assert.equal(mapped.url, 'https://example.org/Prawo-jazdy-media/media/movie.mp4');
   assert.equal(await run("findMediaAsset('missing.mp4')"), null);
+  run("hasMedia = async name => name === 'local.jpg'; loadPublishedMediaMap = async () => null");
+  assert.equal(await run("findMediaPreloadAsset('local.jpg')"), null);
+  const preloadOnline = await run("findMediaPreloadAsset('online.jpg')");
+  assert.equal(preloadOnline.url, 'https://example.org/Prawo-jazdy/media/online.jpg');
   const q1 = {_id:'q1', Media:'one.jpg'};
   const q2 = {_id:'q2', Media:'two.jpg'};
+  const q3 = {_id:'q3', Media:'three.mp4'};
+  const q4 = {_id:'q4', Media:'four.jpg'};
   context.q1 = q1;
   context.q2 = q2;
-  assert.equal(run("nextQuestionInList([q1,q2], 0, false)._id"), 'q2');
-  assert.equal(run("nextQuestionInList([q1,q2], 1, true)"), null);
-  run("findMediaAsset = async name => ({name, url:'https://example.org/media/' + name, type:name.endsWith('.jpg') ? 'image/jpeg' : 'video/mp4'})");
-  await run("preloadQuestionMedia(q2, nextMediaPreloadToken)");
-  assert.equal(createdElements.at(-1).tagName, 'IMG');
-  assert.equal(createdElements.at(-1).src, 'https://example.org/media/two.jpg');
-  run("cancelNextMediaPreload()");
-  context.videoQuestion = {_id:'q3', Media:'three.mp4'};
-  await run("preloadQuestionMedia(videoQuestion, nextMediaPreloadToken)");
-  assert.equal(createdElements.at(-1).tagName, 'VIDEO');
-  assert.equal(createdElements.at(-1).preload, 'auto');
-  assert.equal(createdElements.at(-1).loadCalls, 1);
+  context.q3 = q3;
+  context.q4 = q4;
+  assert.deepEqual(Array.from(run("questionsAheadInList([q1,q2,q3,q4], 0, false).map(q => q._id)")), ['q2','q3','q4']);
+  assert.deepEqual(Array.from(run("questionsAheadInList([q1,q2], 1, true)")), []);
+  run("currentTab = 'bledy'");
+  assert.deepEqual(Array.from(run("questionsAheadInList([q1,q2,q3,q4], 2, false).map(q => q._id)")), ['q4','q1','q2']);
+  assert.deepEqual(Array.from(run("questionsAheadInList([q1,q2], 0, false).map(q => q._id)")), ['q2']);
+  run("currentTab = 'podstawowe'");
+  run("findMediaPreloadAsset = async name => ({name, url:'https://example.org/media/' + name, type:name.endsWith('.jpg') ? 'image/jpeg' : 'video/mp4'})");
+  await run("reconcileMediaPreloads([q2,q3,q4], mediaPreloadGeneration)");
+  assert.equal(run("mediaPreloads.size"), 3);
+  assert.equal(createdElements.at(-3).tagName, 'IMG');
+  assert.equal(createdElements.at(-3).src, 'https://example.org/media/two.jpg');
+  assert.equal(createdElements.at(-2).tagName, 'VIDEO');
+  assert.equal(createdElements.at(-2).preload, 'auto');
+  assert.equal(createdElements.at(-2).loadCalls, 1);
+  const retainedVideo = createdElements.at(-2);
+  const releasedImage = createdElements.at(-3);
+  await run("reconcileMediaPreloads([q3,q4,q1], mediaPreloadGeneration)");
+  assert.equal(run("mediaPreloads.size"), 3);
+  assert.equal(run("mediaPreloads.get('https://example.org/media/three.mp4').element") === retainedVideo, true);
+  assert.equal(releasedImage.src, '');
+  run("cancelMediaPreloads()");
+  assert.equal(run("mediaPreloads.size"), 0);
+  assert.equal(retainedVideo.pauseCalls, 1);
+  assert.equal(retainedVideo.src, '');
 
   // In-flight writes must commit in submission order.
   run("kvSet = async (key, value) => { await new Promise(resolve => setTimeout(resolve, 3)); writes.push(JSON.stringify({correct: value.correct, lastQuestion: value.lastQuestionByTab.podstawowe})); }");
@@ -104,28 +124,29 @@ async function main() {
       addEventListener(name, callback) { callbacks[name] = callback; }
     },
     URL, Set, Promise, console,
-    caches: { open: async () => ({}) },
+    caches: { open: async () => ({ put: async () => {} }) },
     fetch: async () => ({ ok: true, type: 'basic', clone() { return this; } })
   });
   vm.runInContext(fs.readFileSync('sw.js', 'utf8'), sw, { filename: 'sw.js' });
   function intercepted(url, options = {}) {
-    let called = false;
+    let responded = false;
+    let waited = false;
     const headers = new Map(Object.entries(options.headers || {}));
     callbacks.fetch({
       request: {
         method: 'GET', url, mode: options.mode || 'same-origin',
         headers: { has: key => headers.has(key) }
       },
-      respondWith() { called = true; },
-      waitUntil() {}
+      respondWith() { responded = true; },
+      waitUntil() { waited = true; }
     });
-    return called;
+    return { responded, waited };
   }
-  assert.equal(intercepted('https://example.org/Prawo-jazdy/data/questions.json'), false);
-  assert.equal(intercepted('https://example.org/Prawo-jazdy/media/clip.mp4'), false);
-  assert.equal(intercepted('https://example.org/Prawo-jazdy/app.js', { headers: { range: 'bytes=0-' } }), false);
-  assert.equal(intercepted('https://example.org/Prawo-jazdy/app.js'), true);
-  assert.equal(intercepted('https://example.org/Prawo-jazdy/', { mode: 'navigate' }), true);
+  assert.deepEqual(intercepted('https://example.org/Prawo-jazdy/data/questions.json'), { responded: false, waited: false });
+  assert.deepEqual(intercepted('https://example.org/Prawo-jazdy/media/clip.mp4'), { responded: false, waited: false });
+  assert.deepEqual(intercepted('https://example.org/Prawo-jazdy/app.js', { headers: { range: 'bytes=0-' } }), { responded: false, waited: false });
+  assert.deepEqual(intercepted('https://example.org/Prawo-jazdy/app.js'), { responded: true, waited: true });
+  assert.deepEqual(intercepted('https://example.org/Prawo-jazdy/', { mode: 'navigate' }), { responded: true, waited: true });
 
   // Published version updates must never overwrite manually imported question banks.
   assert.equal(run("resolveXlsxSheetPath('worksheets/sheet2.xml')"), 'xl/worksheets/sheet2.xml');

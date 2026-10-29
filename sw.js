@@ -1,5 +1,5 @@
 'use strict';
-const CACHE_NAME = 'prawko-shell-gh-v8';
+const CACHE_NAME = 'prawko-shell-gh-v9';
 const SHELL = [
   './',
   './index.html',
@@ -41,18 +41,24 @@ self.addEventListener('fetch', event => {
     (url.pathname === SCOPE.pathname || url.pathname === new URL('./index.html', SCOPE).pathname);
   if (!SHELL_URLS.has(url.href) && !navigationTarget) return;
 
+  // Extend the event synchronously. Calling waitUntil only after fetch()
+  // resolves is too late in Safari and may throw InvalidStateError.
+  let finishCacheUpdate;
+  event.waitUntil(new Promise(resolve => { finishCacheUpdate = resolve; }));
   event.respondWith(
     fetch(request).then(response => {
       if (response.ok && response.type === 'basic') {
         const copy = response.clone();
-        event.waitUntil(
-          caches.open(CACHE_NAME)
-            .then(cache => cache.put(request, copy))
-            .catch(error => console.warn('PWA cache:', error))
-        );
+        caches.open(CACHE_NAME)
+          .then(cache => cache.put(request, copy))
+          .catch(error => console.warn('PWA cache:', error))
+          .finally(finishCacheUpdate);
+      } else {
+        finishCacheUpdate();
       }
       return response;
     }).catch(async () => {
+      finishCacheUpdate();
       const cached = await caches.match(request);
       if (cached) return cached;
       if (request.mode === 'navigate') {

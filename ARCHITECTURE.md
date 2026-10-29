@@ -33,8 +33,9 @@ Dane publiczne (pytania i multimedia) są oddzielone od danych prywatnych użytk
 4. Każdy użytkownik ma osobny postęp przypisany do identyfikatorów pytań. Zapis jest kolejkowany, aby wcześniejsza transakcja nie nadpisała nowszego stanu.
 5. Dla obrazów i filmów pierwszeństwo ma ręcznie zaimportowana kopia lokalna. W innym przypadku aplikacja pobiera `data/media-map.json` i wybiera `Prawo-jazdy/media/` albo `Prawo-jazdy-media/media/`. Przy braku mapy zachowuje zgodność wsteczną i próbuje głównego `media/`.
 6. `video` odtwarza MP4 z obsługą natywnego HTTP Range. Duże pliki nie są automatycznie kopiowane do IndexedDB ani Cache API.
-7. Po rozpoczęciu wyświetlania bieżącego multimedia aplikacja wstępnie ładuje dokładnie jeden plik przypisany do kolejnego, już wylosowanego pytania. Obrazy mają niski priorytet, a filmy używają odłączonego elementu `video` z `preload="auto"`; następne wyświetlenie korzysta z cache HTTP przeglądarki.
+7. Po rozpoczęciu wyświetlania bieżącego multimedia aplikacja utrzymuje bufor plików dla trzech kolejnych, już wylosowanych pytań. Po odpowiedzi zachowuje dwa nadal potrzebne pobrania, zwalnia element nieużywany i dobiera jeden nowy. Obrazy mają niski priorytet, a filmy używają odłączonych elementów `video` z `preload="auto"`; następne wyświetlenia korzystają z cache HTTP przeglądarki. Bufor jest wyłączany przy włączonym oszczędzaniu danych oraz czyszczony przy zmianie widoku.
 8. Service Worker przechowuje tylko elementy interfejsu. Nie przechwytuje `/media/`, `/data/` ani żądań `Range`.
+9. Multimedia w długich listach błędów są ładowane tylko w pobliżu ekranu i zwalniane po oddaleniu. Przy opuszczaniu widoku elementy `video`, tymczasowe adresy `blob:` i węzły listy są czyszczone.
 
 ## Struktura katalogów docelowych
 
