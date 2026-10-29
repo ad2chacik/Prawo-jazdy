@@ -39,6 +39,10 @@ let historyObserver = null;
 let historyUrls = new Set();
 let installPrompt = null;
 let publishedMediaMapPromise = null;
+let nextMediaPreload = null;
+let nextMediaPreloadTimer = null;
+let nextMediaPreloadToken = 0;
+let questionRenderSequence = 0;
 
 // Per-tab, in-memory history. Going back is a read-only review and must
 // never undo or re-count an answer already saved in IndexedDB.
@@ -951,6 +955,68 @@ async function findMediaAsset(originalName) {
   return null;
 }
 
+function cancelNextMediaPreload() {
+  nextMediaPreloadToken++;
+  if (nextMediaPreloadTimer) clearTimeout(nextMediaPreloadTimer);
+  nextMediaPreloadTimer = null;
+  const element = nextMediaPreload?.element;
+  if (element) {
+    if (element.tagName === 'VIDEO') element.pause();
+    element.removeAttribute('src');
+    if (element.tagName === 'VIDEO') element.load();
+  }
+  nextMediaPreload = null;
+}
+
+function nextQuestionInList(list, index, isExam) {
+  if (!Array.isArray(list) || !list.length) return null;
+  if (index + 1 < list.length) return list[index + 1];
+  if (!isExam && currentTab === 'bledy' && list.length > 1) return list[0];
+  return null;
+}
+
+async function preloadQuestionMedia(question, token) {
+  const name = String(question?.Media || '').trim();
+  if (!name || name.toLowerCase() === 'nan' || globalThis.navigator?.connection?.saveData) return;
+  try {
+    const asset = await findMediaAsset(name);
+    if (token !== nextMediaPreloadToken || !asset?.url || asset.blob) return;
+    const ext = extensionOf(asset.name);
+    const isImage = (asset.type || '').startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext);
+    const element = document.createElement(isImage ? 'img' : 'video');
+    if (isImage) {
+      element.decoding = 'async';
+      element.fetchPriority = 'low';
+    } else {
+      element.preload = 'auto';
+      element.muted = true;
+      element.playsInline = true;
+    }
+    element.src = asset.url;
+    if (!isImage) element.load();
+    if (token !== nextMediaPreloadToken) {
+      element.removeAttribute('src');
+      if (!isImage) element.load();
+      return;
+    }
+    nextMediaPreload = { name: asset.name, element };
+  } catch (error) {
+    console.warn('Nie udało się wstępnie pobrać kolejnego pliku multimedialnego:', error);
+  }
+}
+
+function scheduleNextMediaPreload(list, index, isExam) {
+  cancelNextMediaPreload();
+  const nextQuestion = nextQuestionInList(list, index, isExam);
+  if (!nextQuestion) return;
+  const token = nextMediaPreloadToken;
+  nextMediaPreloadTimer = setTimeout(() => {
+    nextMediaPreloadTimer = null;
+    preloadQuestionMedia(nextQuestion, token);
+  }, 0);
+}
+
 function downloadJSON(filename, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1203,6 +1269,8 @@ function cleanupHistoryMedia() {
 
 async function switchTab(tab) {
   const switchId = ++tabSwitchSequence;
+  questionRenderSequence++;
+  cancelNextMediaPreload();
   mediaLoadToken++;
   cleanupMediaUrl();
   cleanupHistoryMedia();
@@ -1242,6 +1310,8 @@ async function switchTab(tab) {
 }
 
 function showCompletion() {
+  questionRenderSequence++;
+  cancelNextMediaPreload();
   studyReview = null;
   $('review-label').classList.add('hidden');
   resetMediaBox('Gotowe');
@@ -1308,6 +1378,7 @@ function showQuestion() {
   const isExam = currentTab === 'egzamin';
   const list = isExam ? examQuestions : decks[currentTab];
   const index = isExam ? examIndex : indices[currentTab];
+  const renderSequence = ++questionRenderSequence;
 
   if (!list || index >= list.length) {
     if (!isExam && currentTab === 'bledy' && decks.bledy.length) {
@@ -1337,7 +1408,11 @@ function showQuestion() {
   $('q-text').textContent = question['Pytanie'];
   waitingForContinue = false;
   renderAnswers(question, isExam);
-  setMedia(question['Media']);
+  setMedia(question['Media']).finally(() => {
+    if (renderSequence === questionRenderSequence) {
+      scheduleNextMediaPreload(list, index, isExam);
+    }
+  });
   updateQuizActions();
 
   if (!isExam) {
@@ -1501,6 +1576,8 @@ async function finishExam() {
   await saveProgress();
   prepareDecks();
   if (currentTab !== 'egzamin') return;
+  questionRenderSequence++;
+  cancelNextMediaPreload();
   mediaLoadToken++;
   cleanupMediaUrl();
 

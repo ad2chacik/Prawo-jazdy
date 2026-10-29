@@ -1,5 +1,5 @@
 'use strict';
-const CACHE_NAME = 'prawko-shell-gh-v7';
+const CACHE_NAME = 'prawko-shell-gh-v8';
 const SHELL = [
   './',
   './index.html',

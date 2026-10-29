@@ -6,6 +6,7 @@ const vm = require('node:vm');
 async function main() {
   const writes = [];
   const publishedWrites = [];
+  const createdElements = [];
   const elements = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
@@ -18,11 +19,22 @@ async function main() {
     document: {
       addEventListener() {},
       getElementById: element,
+      createElement(tagName) {
+        const node = {
+          tagName: tagName.toUpperCase(), src: '', preload: '', muted: false,
+          playsInline: false, loadCalls: 0, pauseCalls: 0,
+          load() { this.loadCalls++; }, pause() { this.pauseCalls++; },
+          removeAttribute(name) { if (name === 'src') this.src = ''; }
+        };
+        createdElements.push(node);
+        return node;
+      },
       baseURI: 'https://example.org/Prawo-jazdy/'
     },
     console, URL, Blob, AbortController, Date, Array, Set, Map, Math, Number, String,
     Promise, setTimeout: (callback, ms) => setTimeout(callback, Math.min(ms, 100)),
     clearTimeout, writes, publishedWrites,
+    navigator: { connection: { saveData: false } },
     window: { JSZip: {} },
     fetch: async () => ({ ok: false })
   });
@@ -61,6 +73,22 @@ async function main() {
   const mapped = await run("findMediaAsset('movie.mp4')");
   assert.equal(mapped.url, 'https://example.org/Prawo-jazdy-media/media/movie.mp4');
   assert.equal(await run("findMediaAsset('missing.mp4')"), null);
+  const q1 = {_id:'q1', Media:'one.jpg'};
+  const q2 = {_id:'q2', Media:'two.jpg'};
+  context.q1 = q1;
+  context.q2 = q2;
+  assert.equal(run("nextQuestionInList([q1,q2], 0, false)._id"), 'q2');
+  assert.equal(run("nextQuestionInList([q1,q2], 1, true)"), null);
+  run("findMediaAsset = async name => ({name, url:'https://example.org/media/' + name, type:name.endsWith('.jpg') ? 'image/jpeg' : 'video/mp4'})");
+  await run("preloadQuestionMedia(q2, nextMediaPreloadToken)");
+  assert.equal(createdElements.at(-1).tagName, 'IMG');
+  assert.equal(createdElements.at(-1).src, 'https://example.org/media/two.jpg');
+  run("cancelNextMediaPreload()");
+  context.videoQuestion = {_id:'q3', Media:'three.mp4'};
+  await run("preloadQuestionMedia(videoQuestion, nextMediaPreloadToken)");
+  assert.equal(createdElements.at(-1).tagName, 'VIDEO');
+  assert.equal(createdElements.at(-1).preload, 'auto');
+  assert.equal(createdElements.at(-1).loadCalls, 1);
 
   // In-flight writes must commit in submission order.
   run("kvSet = async (key, value) => { await new Promise(resolve => setTimeout(resolve, 3)); writes.push(JSON.stringify({correct: value.correct, lastQuestion: value.lastQuestionByTab.podstawowe})); }");
