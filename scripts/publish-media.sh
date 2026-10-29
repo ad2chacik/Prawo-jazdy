@@ -247,7 +247,7 @@ else
   gh repo create "$MEDIA_REPO" --public --description "Multimedia dla aplikacji Prawo-jazdy" --disable-issues --disable-wiki
 fi
 
-git clone --quiet "https://github.com/${MEDIA_REPO}.git" "$MEDIA_DIR"
+git clone --quiet --filter=blob:none --sparse "https://github.com/${MEDIA_REPO}.git" "$MEDIA_DIR"
 if [[ ! -d "$MEDIA_DIR/.git" ]]; then
   mkdir -p "$MEDIA_DIR"
   git -C "$MEDIA_DIR" init -q -b main
@@ -356,7 +356,7 @@ for repo_dir in "$APP_DIR" "$MEDIA_DIR"; do
   git -C "$repo_dir" config core.compression 0
 done
 
-git -C "$MEDIA_DIR" add .prawko-media-repo .nojekyll README.md index.html media media-manifest.json
+git -C "$MEDIA_DIR" add --sparse .prawko-media-repo .nojekyll README.md index.html media media-manifest.json
 if ! git -C "$MEDIA_DIR" diff --cached --quiet; then
   git -C "$MEDIA_DIR" commit -q -m "Publish second half of question media"
 fi
@@ -370,16 +370,34 @@ APP_SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
 
 configure_pages() {
   local repo="$1"
-  local payload='{"build_type":"legacy","source":{"branch":"main","path":"/"}}'
-  local current
+  local create_payload='{"source":{"branch":"main","path":"/"}}'
+  local update_payload='{"build_type":"legacy","source":{"branch":"main","path":"/"}}'
+  local current method payload
   current="$(gh api "repos/$repo/pages" 2>/dev/null || true)"
   if [[ -n "$current" ]] && printf '%s' "$current" | python3 -c 'import json,sys; p=json.load(sys.stdin); raise SystemExit(0 if p.get("build_type")=="legacy" and p.get("source")=={"branch":"main","path":"/"} else 1)'; then
     return 0
   elif [[ -n "$current" ]]; then
-    printf '%s' "$payload" | gh api --method PUT "repos/$repo/pages" --input - >/dev/null
+    method="PUT"
+    payload="$update_payload"
   else
-    printf '%s' "$payload" | gh api --method POST "repos/$repo/pages" --input - >/dev/null
+    method="POST"
+    payload="$create_payload"
   fi
+
+  # A freshly pushed default branch can need a few seconds before the Pages
+  # endpoint accepts it. Retry only this idempotent configuration step.
+  for attempt in {1..18}; do
+    if printf '%s' "$payload" | gh api \
+      --method "$method" \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2022-11-28' \
+      "repos/$repo/pages" --input - >/dev/null 2>&1; then
+      return 0
+    fi
+    printf 'GitHub jeszcze przygotowuje Pages dla %s; ponawiam (%s/18)…\n' "$repo" "$attempt"
+    sleep 5
+  done
+  fail "Nie udało się włączyć GitHub Pages dla $repo po 18 próbach. Wysłane pliki pozostają bezpiecznie w repozytorium."
 }
 
 wait_for_pages() {
