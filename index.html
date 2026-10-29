@@ -135,12 +135,15 @@
       </div>
 
       <div class="question-meta">
-        <span id="points-badge" class="badge important hidden"></span>
-        <span class="badge category">Kategoria B</span>
+        <span id="points-badge" class="badge important hidden" title="Ważne pytanie"></span>
+        <span id="review-label" class="review-label hidden">Podgląd poprzedniego pytania — wynik bez zmian</span>
       </div>
       <div id="q-text" class="question-text" aria-live="polite">Ładowanie pytania…</div>
       <div id="answers-box" class="answers-grid"></div>
-      <button id="continue-btn" class="continue-btn hidden" type="button">Dalej</button>
+      <div class="quiz-actions">
+        <button id="back-btn" class="back-btn" type="button" disabled>Poprzednie</button>
+        <button id="continue-btn" class="continue-btn is-inactive" type="button" disabled>Dalej</button>
+      </div>
     </section>
 
     <section id="history-container" class="hidden content-section">
