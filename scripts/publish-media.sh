@@ -170,9 +170,12 @@ app_overhead = sum(
     path.stat().st_size for path in app.rglob('*')
     if path.is_file() and '.git' not in path.parts and 'media' not in path.relative_to(app).parts[:1]
 )
+# Keep the split stable across future edits to documentation or this script.
+# This is the measured non-media size used for the first successful split.
+split_app_overhead = 1_504_541
 secondary_overhead = 64 * 1024
 bins = {
-    'primary': {'bytes': app_overhead, 'names': []},
+    'primary': {'bytes': split_app_overhead, 'names': []},
     'secondary': {'bytes': secondary_overhead, 'names': []},
 }
 records = []
@@ -187,10 +190,18 @@ for name, path in sorted(files.items(), key=lambda item: (-item[1].stat().st_siz
     if size > warning_size:
         large_warnings.append({'name': name, 'size': size})
 
-if max(item['bytes'] for item in bins.values()) > pages_limit:
+media_bytes = {
+    key: sum(files[name].stat().st_size for name in value['names'])
+    for key, value in bins.items()
+}
+site_bytes = {
+    'primary': media_bytes['primary'] + app_overhead,
+    'secondary': media_bytes['secondary'] + secondary_overhead,
+}
+if max(site_bytes.values()) > pages_limit:
     raise SystemExit(
         'Podział nie mieści się w przyjętym limicie bezpieczeństwa 900 MB: ' +
-        ', '.join(f"{key}={value['bytes']}" for key, value in bins.items())
+        ', '.join(f"{key}={value}" for key, value in site_bytes.items())
     )
 
 plan = {
@@ -199,7 +210,7 @@ plan = {
     'totalBytes': sum(record['size'] for record in records),
     'appOverheadBytes': app_overhead,
     'locations': {
-        key: {'files': len(value['names']), 'mediaBytes': sum(files[name].stat().st_size for name in value['names']), 'siteBytes': value['bytes']}
+        key: {'files': len(value['names']), 'mediaBytes': media_bytes[key], 'siteBytes': site_bytes[key]}
         for key, value in bins.items()
     },
     'largeFileWarnings': large_warnings,
@@ -404,17 +415,17 @@ wait_for_pages() {
   local repo="$1"
   local expected_sha="$2"
   local label="$3"
-  local build status commit
+  local build page_status commit
   for attempt in {1..75}; do
     build="$(gh api "repos/$repo/pages/builds/latest" 2>/dev/null || true)"
     if [[ -n "$build" ]]; then
-      status="$(printf '%s' "$build" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))')"
+      page_status="$(printf '%s' "$build" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))')"
       commit="$(printf '%s' "$build" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit", ""))')"
-      if [[ "$commit" == "$expected_sha" && "$status" == "built" ]]; then
+      if [[ "$commit" == "$expected_sha" && "$page_status" == "built" ]]; then
         printf '%s: wdrożone.\n' "$label"
         return 0
       fi
-      if [[ "$commit" == "$expected_sha" && "$status" == "errored" ]]; then
+      if [[ "$commit" == "$expected_sha" && "$page_status" == "errored" ]]; then
         fail "Wdrożenie Pages zakończyło się błędem dla $repo. Sprawdź kartę Actions."
       fi
     fi
